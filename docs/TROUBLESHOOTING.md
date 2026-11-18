@@ -31,6 +31,8 @@
 | `entry skipped: size X below minimum order` | พอร์ตเล็กเกินไปสำหรับขั้นต่ำ 5 USDT ตาม sizing | เพิ่มเงิน หรือเพิ่ม `risk_per_trade_pct`/`max_position_pct` อย่างระวัง |
 | `entry skipped: daily loss …` / `max drawdown …` | kill switch ทำงาน | ดู [RISK.md](RISK.md) — daily ปลดเองวันถัดไป, drawdown ต้อง `make resume` |
 | `entry skipped: cooldown` / `max trades per day reached` | ข้อจำกัดตาม config | ปกติ |
+| `stale last price (age Ns) - skipping new entries` | timestamp ราคาจาก exchange เก่าเกิน `max(3 × poll_seconds, 90)` | เช็คเน็ต/feed; บอทยังดูแล stop อยู่ และจะประมวลผลสัญญาณแท่งนั้นใหม่เมื่อราคาสด |
+| `⛔ HALTED … position quantity mismatch` | จำนวนเหรียญในกระเป๋าต่างจาก position ที่ track > 1% | ตรวจ Binance ว่ามีการซื้อ/ขาย/โอนด้วยมือหรือไม่ แล้ว `make resume MODE=…` |
 | `⛔ HALTED … order state unknown` | ส่งออเดอร์แล้วยืนยันผลไม่ได้ | ทำตาม [OPERATIONS.md](OPERATIONS.md) หัวข้อเหตุการณ์ฉุกเฉิน แล้ว `make resume` |
 | `⛔ HALTED … untracked … in wallet (no position/stop)` | มีเหรียญ base ค้างในกระเป๋าแต่ไม่มี position (ซื้อแล้ว fill แต่สถานะไม่เซฟ / crash) | ตรวจบน Binance ว่าจะขายหรือติดตามไม้เอง แล้ว `make resume MODE=…` |
 | `position … dropped (dust)` | ไม้เล็กกว่าขั้นต่ำ ขายไม่ได้ | เหรียญค้างในกระเป๋า แปลงเป็น BNB บน Binance ได้ |

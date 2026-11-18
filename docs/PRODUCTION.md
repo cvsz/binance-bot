@@ -45,7 +45,8 @@
 | สิ่งที่ต้องดู | วิธี | สัญญาณเตือน |
 |---|---|---|
 | Heartbeat | `make health MODE=live` หรือ `GET /healthz` | exit 1 = ไม่ online; dashboard แสดง `stale`/`offline` |
-| ข้อความจากบอท | Telegram | `⛔ HALTED`, `⛔ STOPPED`, `SELL FAILED`, `position dropped` ต้องมีคนตอบสนอง |
+| ข้อความจากบอท | Telegram | `⛔ HALTED`, `⛔ STOPPED`, `stale price`, `SELL FAILED`, `position dropped` ต้องมีคนตอบสนอง |
+| ความสดของราคา | heartbeat `price_stale` / `price_age_s` | `price_stale: true` แปลว่าไม่มีการเปิดไม้ใหม่จนกว่าราคาจะสด |
 | Log | `make errors`, `make logs` | `HALTED`/`STOPPED`/`CRITICAL` ซ้ำผิดปกติ |
 | ฐานข้อมูล | `make info` | ขนาด/วันที่ของ `data/*.db` ไม่ควรค้างนาน |
 

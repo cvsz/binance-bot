@@ -1,5 +1,6 @@
 """Production-hardening regression tests: fill confirmation, stop reasons, reconciliation."""
 import sqlite3
+import time
 from pathlib import Path
 
 import ccxt
@@ -232,6 +233,76 @@ def test_backoff_caps_at_600():
     assert r.tick(400) == 600
     assert r.tick(700) == 600
     assert r.exit_code == 0 and not r._stop
+
+
+class StaleTickerExchange(FakeExchange):
+    def __init__(self, df, age_seconds):
+        super().__init__(df)
+        self.age_seconds = age_seconds
+
+    def fetch_ticker(self, symbol):
+        return {"last": 100.0, "timestamp": (time.time() - self.age_seconds) * 1000}
+
+
+def test_stale_price_skips_entries_and_keeps_bar_unconsumed(tmp_path):
+    ex = StaleTickerExchange(synthetic(600), age_seconds=1000)
+    store = Store(tmp_path / "p.db")
+    note = RecordingNotifier()
+    r = Runner(AppConfig(), "paper", exchange=ex, store=store, notifier=note)
+    r.restore()
+    r.step()
+    first_bar = store.get("last_bar")
+    ex.i += 1
+    r.step()
+    assert store.trades() == []
+    assert store.get("last_bar") == first_bar  # signal will be retried when price is fresh
+    assert store.get("heartbeat")["price_stale"] is True
+    assert any("stale price" in m for m in note.msgs)
+
+
+def test_fresh_price_allows_entries(tmp_path):
+    ex = StaleTickerExchange(synthetic(600), age_seconds=1)
+    store = Store(tmp_path / "p.db")
+    r = Runner(AppConfig(), "paper", exchange=ex, store=store, notifier=NullNotifier())
+    signals = []
+    original = r.engine.on_signal
+
+    def spy(*args, **kwargs):
+        signals.append(args)
+        return original(*args, **kwargs)
+
+    r.engine.on_signal = spy
+    r.restore()
+    r.step()
+    ex.i += 1
+    r.step()
+    assert store.get("heartbeat")["price_stale"] is False
+    assert len(signals) == 1  # the new bar was processed once the price was fresh
+
+
+def test_position_quantity_mismatch_halts(tmp_path):
+    ex = FakeExchange(synthetic(600))
+    ex.base = 0.7
+    store = Store(tmp_path / "s.db")
+    store.put("position", {"qty": 1.0, "entry_price": 100, "cost_quote": 100, "stop": 98,
+                           "take": None, "peak": 100, "opened_at": "x"})
+    r = Runner(AppConfig(), "live", exchange=ex, broker=fast_broker(ex), store=store,
+               notifier=RecordingNotifier())
+    r.restore()
+    assert "mismatch" in r.engine.risk.state.halted_reason
+
+
+def test_small_quantity_difference_is_tolerated(tmp_path):
+    ex = FakeExchange(synthetic(600))
+    ex.base = 0.999
+    store = Store(tmp_path / "s.db")
+    store.put("position", {"qty": 1.0, "entry_price": 100, "cost_quote": 100, "stop": 98,
+                           "take": None, "peak": 100, "opened_at": "x"})
+    r = Runner(AppConfig(), "live", exchange=ex, broker=fast_broker(ex), store=store,
+               notifier=NullNotifier())
+    r.restore()
+    assert r.engine.risk.state.halted_reason is None
+    assert r.engine.position is not None
 
 
 def test_untracked_wallet_balance_halts_entries():

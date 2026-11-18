@@ -73,7 +73,8 @@ sequenceDiagram
     participant E as Engine
     participant S as SQLite
     R->>X: fetch_ohlcv (warmup+100 แท่ง) แล้วตัดแท่งที่ยังไม่ปิด
-    R->>X: fetch_ticker → ราคาล่าสุด
+    R->>X: fetch_ticker → ราคาล่าสุด + timestamp
+    R->>R: ถ้าราคาเก่าเกิน max(3 × poll_seconds, 90) → ข้ามการเปิดไม้ (ยังเช็ค stop ต่อ)
     R->>E: apply_resume_request (ถ้ามีคำขอจาก run.py resume)
     alt แท่งล่าสุดเป็นแท่งใหม่
         R->>E: on_signal(now, signal ของแท่งที่เพิ่งปิด, ราคาล่าสุด)
@@ -87,6 +88,8 @@ sequenceDiagram
 - **สัญญาณ** คำนวณจากแท่งที่ปิดแล้วเท่านั้น (`drop_open_candle`)
 - **Stop/TP** เช็คกับราคาล่าสุดทุกรอบ poll — ระหว่างรอบราคาอาจวิ่งผ่าน stop ได้ การออกจริงเป็น market order ที่ราคาตลาด ณ ตอนนั้น live ส่ง `open_=None` เสมอ ดังนั้นเหตุผลการออกจะเป็น `stop_loss`/`trailing_stop`/`take_profit` (ไม่ใช่ `stop_gap` ซึ่งใช้เฉพาะ backtest)
 - ถ้า restore แล้วพบเหรียญ base ในกระเป๋าโดยไม่มี position บันทึกอยู่ (ซื้อแล้ว fill แต่สถานะยังไม่เซฟ / crash) บอทจะ **halt การเปิดไม้ใหม่** และแจ้งเตือนให้ตรวจบัญชีก่อน `resume`
+- ถ้ามี position แต่จำนวนเหรียญในกระเป๋าต่างจากที่ track เกิน 1% (ยกเว้นกรณีหายเกินครึ่ง → เคลียร์ไม้แบบเดิม) ก็ halt เช่นกัน — กันการคำนวณด้วยขนาดไม้ที่ผิด
+- ราคาจาก exchange ที่มี timestamp เก่ากว่า `max(3 × poll_seconds, 90)` ถือว่า stale: **ไม่ประมวลผลสัญญาณ/ไม่เปิดไม้ใหม่** และไม่ consume แท่งนั้น (รอราคาใหม่แล้วประมวลผลซ้ำ) แต่ยังเช็ค stop/TP ทุก poll
 
 ### การจัดการ error ในลูป (`Runner.tick`)
 

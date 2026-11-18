@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import signal
 import time
+from datetime import UTC, datetime
 
 import ccxt
 import pandas as pd
@@ -66,6 +67,12 @@ class Runner:
                 self.engine.notifier.send(f"[{self.mode}] position {self.cfg.symbol} missing from wallet; cleared")
                 self.engine.position = None
                 self.engine.save()
+            elif abs(base - self.engine.position.qty) > max(self.engine.position.qty * 0.01, 1e-8):
+                # Partial/manual changes leave a position with no reliable stop
+                # size: fail closed rather than trading on a wrong assumption.
+                self.engine._halt(
+                    f"position quantity mismatch {self.cfg.symbol}: wallet {base:.8f} vs tracked "
+                    f"{self.engine.position.qty:.8f} - check Binance, then resume")
         elif base > 0:
             # A buy may have filled without being persisted (crash or unconfirmed
             # order). Coins with no tracked stop are unacceptable: block new
@@ -81,18 +88,47 @@ class Runner:
                     f"untracked {base:.8f} {self.cfg.symbol} in wallet (no position/stop); "
                     f"check Binance, fix, then resume")
 
+    @staticmethod
+    def _price_age(ticker: dict) -> float | None:
+        """Age in seconds of the exchange's last-price timestamp, if it provides one."""
+        ts = ticker.get("timestamp")
+        if ts is not None:
+            try:
+                return max(0.0, (time.time() * 1000 - float(ts)) / 1000)
+            except (TypeError, ValueError):
+                return None
+        raw = ticker.get("datetime")
+        if raw:
+            try:
+                stamp = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                return max(0.0, (datetime.now(UTC) - stamp).total_seconds())
+            except ValueError:
+                return None
+        return None
+
     # ---- loop ------------------------------------------------------------
     def step(self) -> None:
         df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe, limit=self.strategy.warmup + 100)
         if len(df) <= self.strategy.warmup:
             log.warning("not enough candles yet (%d)", len(df))
             return
-        price = float(self.ex.fetch_ticker(self.cfg.symbol)["last"])
+        ticker = self.ex.fetch_ticker(self.cfg.symbol)
+        price = float(ticker["last"])
+        price_age = self._price_age(ticker)
+        max_age = max(3 * self.cfg.poll_seconds, 90)
+        stale = price_age is not None and price_age > max_age
         now = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M")
         self.engine.apply_resume_request(price)
         bar_key = df.index[-1].isoformat()
         last = self.store.get("last_bar")
-        if last is None:
+        new_bar = False
+        if stale:
+            # Fail closed on execution: a stale last price must not open a new
+            # position. Do not consume the bar either — re-evaluate it once the
+            # feed is fresh. Stops still run with the last available price.
+            log.warning("stale last price (age %.0fs > %.0fs) - skipping new entries", price_age, max_age)
+            self.engine.notifier.send(f"[{self.mode}] ⚠️ stale price ({price_age:.0f}s) - no new entries")
+        elif last is None:
             log.info("first run: syncing to bar %s without trading on it", bar_key)
             self.store.put("last_bar", bar_key)
             new_bar = True  # record a starting equity point
@@ -102,8 +138,6 @@ class Runner:
             self.engine.on_signal(now, sig, price)
             self.store.put("last_bar", bar_key)
             new_bar = True
-        else:
-            new_bar = False
         # live has a single last price: no bar open, so stops keep their real reason
         self.engine.on_price(now, price, price, open_=None)
         self.engine.save()
@@ -120,6 +154,7 @@ class Runner:
             "base": base, "quote": quote, "symbol": self.cfg.symbol, "timeframe": self.cfg.timeframe,
             "strategy": self.cfg.strategy, "mode": self.engine.mode, "poll_seconds": self.cfg.poll_seconds,
             "start_equity": start_equity, "halted": self.engine.risk.state.halted_reason,
+            "price_age_s": round(price_age, 1) if price_age is not None else None, "price_stale": stale,
         })
 
     def run(self) -> int:
