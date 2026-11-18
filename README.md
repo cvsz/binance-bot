@@ -1,0 +1,113 @@
+# Binance Spot Trading Bot
+
+บอทเทรด Binance Spot อัตโนมัติ (Python + ccxt) — ซื้อ/ขายตามกลยุทธ์ มี stop-loss บังคับ, จำกัดขาดทุนรายวัน, backtest ได้ และเริ่มต้นแบบไม่ใช้เงินจริงเสมอ
+
+> ⚠️ **คำเตือน**: การเทรดคริปโตมีความเสี่ยงสูง บอทนี้ **ไม่รับประกันกำไร** ผล backtest ในอดีตไม่ได้บอกอนาคต
+> เริ่มที่ `backtest` → `paper` → `live` (testnet) ก่อนจะคิดใช้เงินจริง และใช้เงินที่เสียได้เท่านั้น
+
+## ทำอะไรได้บ้าง
+
+| โหมด | ราคา | เงิน | คำสั่ง |
+|---|---|---|---|
+| **backtest** | ข้อมูลย้อนหลัง | จำลอง | `python run.py backtest --days 180` |
+| **paper** | ราคาจริงแบบ real-time | จำลอง | `python run.py paper` |
+| **live (testnet)** | Binance Testnet | เงินปลอมของ testnet | `python run.py live` |
+| **live (เงินจริง)** | Binance | **เงินจริง** | `python run.py live --real-money` + ยืนยันใน `.env` |
+
+- **กลยุทธ์**: `ema_cross` (ตามเทรนด์ EMA ตัดกัน + กรอง RSI) และ `rsi_reversion` (ซื้อตอน RSI ฟื้นจาก oversold ในขาขึ้น) — เพิ่มเองได้ใน `bot/strategies.py`
+- **บริหารความเสี่ยง**: คำนวณขนาดไม้จาก % ความเสี่ยงต่อไม้, stop-loss บังคับ, take-profit, trailing stop, จำกัดเงินต่อไม้, หยุดเปิดไม้เมื่อขาดทุนรายวันเกินกำหนด, จำกัดจำนวนไม้ต่อวัน, cooldown
+- **ไม่มี lookahead**: สัญญาณใช้เฉพาะแท่งเทียนที่ปิดแล้ว, backtest ส่งคำสั่งที่ราคาเปิดของแท่งถัดไป (เหมือนของจริง) และคิดค่าธรรมเนียม + slippage
+- **ทนทาน**: บันทึกสถานะลง SQLite (รีสตาร์ทแล้วทำต่อได้), retry เมื่อเน็ตหลุด, ปิดอย่างปลอดภัยเมื่อกด Ctrl+C
+- **ไม่แตะเหรียญเดิมของคุณ**: บอทขายเฉพาะจำนวนที่ตัวเองซื้อ
+- **แจ้งเตือน Telegram** (ไม่บังคับ)
+
+## เริ่มใช้งาน
+
+```bash
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp config.example.yaml config.yaml
+cp .env.example .env
+```
+
+### 1) Backtest
+```bash
+python run.py backtest --days 180
+python run.py backtest --csv my_ohlcv.csv          # CSV: timestamp,open,high,low,close,volume
+```
+ผลลัพธ์: ผลตอบแทน, เทียบกับ buy & hold, max drawdown, win rate, profit factor, Sharpe และไฟล์ `reports/backtest_trades.csv`, `reports/backtest_equity.csv`
+
+ลองปรับ `strategy`/`risk` ใน `config.yaml` แล้ว backtest หลายช่วงเวลา/หลายเหรียญ ถ้ากลยุทธ์แพ้ buy & hold หรือ drawdown สูง อย่าเพิ่งไปต่อ
+
+### 2) Paper trading (ราคาจริง เงินจำลอง)
+```bash
+python run.py paper
+python run.py status --mode paper     # ดูสถานะ/ไม้ล่าสุด
+```
+ปล่อยรันอย่างน้อย 1–2 สัปดาห์
+
+### 3) Binance Testnet
+1. สมัคร/ล็อกอินที่ https://testnet.binance.vision แล้วสร้าง API key
+2. ใส่ `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET` ใน `.env`
+3. `exchange.testnet: true` ใน `config.yaml` แล้ว `python run.py live`
+
+### 4) เงินจริง (ทำเมื่อมั่นใจแล้วเท่านั้น)
+1. สร้าง API key บน Binance: เปิด **Enable Spot & Margin Trading** เท่านั้น, **ปิด Withdrawals**, ตั้ง **IP whitelist**
+2. ใส่ `BINANCE_API_KEY` / `BINANCE_API_SECRET` ใน `.env`
+3. ตั้ง `exchange.testnet: false` และเพิ่ม `BOT_CONFIRM_REAL_MONEY=YES_I_ACCEPT_THE_RISK` ใน `.env`
+4. `python run.py live --real-money`
+
+ขาดข้อใดข้อหนึ่ง บอทจะไม่ยอมเริ่ม
+
+## Dashboard
+
+```bash
+python run.py dashboard              # เปิด http://localhost:8080
+```
+เปิดอีกหน้าต่างเทอร์มินัลแยกจากตัวบอท (บอทกับ dashboard เป็นคนละโปรเซส) แสดง:
+- สถานะบอท ออนไลน์/ออฟไลน์ และแจ้งเมื่อหยุดเปิดไม้เพราะขาดทุนรายวันเกิน
+- มูลค่าพอร์ต, % กำไรจากเริ่มต้น, ราคาล่าสุด, ยอดเหรียญ/USDT
+- กำไรที่ปิดแล้ว, win rate, profit factor, ไม้ดีสุด/แย่สุด
+- กราฟมูลค่าพอร์ต, ไม้ที่เปิดอยู่ (ราคาเข้า, SL, TP, กำไรที่ยังไม่ปิด)
+- ประวัติเทรด 200 รายการล่าสุด และสลับโหมด paper / live-testnet / live ได้
+- รีเฟรชอัตโนมัติทุก 10 วินาที รองรับมือถือและธีมมืด/สว่าง
+
+**ดูได้อย่างเดียว** หน้านี้อ่านแค่ฐานข้อมูลของบอท ไม่มีทางส่งคำสั่งซื้อขาย
+ถ้าจะเปิดให้เข้าจากเครื่องอื่น (`--host 0.0.0.0`) ต้องตั้ง `DASHBOARD_TOKEN` ใน `.env` แล้วเข้าด้วย `http://<ip>:8080/?token=<ค่า token>`
+แนะนำให้เข้าผ่าน SSH tunnel หรือ Cloudflare Tunnel/Access แทนการเปิดพอร์ตสู่อินเทอร์เน็ตตรงๆ (dashboard ไม่มี HTTPS ในตัว)
+
+> ในโหมด live มูลค่าพอร์ตนับรวมเหรียญ base และ USDT ทั้งหมดในบัญชี spot ไม่ใช่เฉพาะที่บอทซื้อ
+
+## รันแบบ 24/7 ด้วย Docker
+```bash
+docker compose up -d --build        # บอท (paper) + dashboard ที่ http://localhost:8080/?token=<DASHBOARD_TOKEN>
+docker compose logs -f
+```
+
+## ข้อควรรู้
+- **Long-only spot**: ซื้อแล้วขาย ไม่มี short/leverage/futures (ตั้งใจเพื่อความปลอดภัย)
+- **Stop-loss/TP ทำงานฝั่งบอท** (บอทเช็คราคาทุก `poll_seconds`) ถ้าบอทดับ stop จะไม่ทำงาน — ควรรันบน VPS/Docker ที่ `restart: unless-stopped` และเปิดแจ้งเตือน Telegram
+- จำกัดขาดทุนรายวันนับตามวัน **UTC** (07:00 เวลาไทย)
+- ใช้ Binance global (binance.com) — **Binance TH** เป็นคนละระบบ/API ใช้กับบอทนี้ไม่ได้โดยตรง
+- กำหนดค่าธรรมเนียม/slippage ใน `paper` ให้ใกล้ของจริง (Binance spot ปกติ 0.1%)
+
+## โครงสร้าง
+```
+bot/indicators.py   EMA, RSI
+bot/strategies.py   กลยุทธ์ (เพิ่มคลาสใหม่แล้วลงทะเบียนใน STRATEGIES)
+bot/risk.py         ขนาดไม้, SL/TP/trailing, kill switch
+bot/broker.py       PaperBroker / LiveBroker (ccxt)
+bot/engine.py       ตรรกะเข้า-ออก ใช้ร่วมกันทุกโหมด
+bot/backtest.py     backtester + สถิติ
+bot/runner.py       ลูปรัน paper/live
+bot/store.py        SQLite: บันทึกเทรด + สถานะ
+bot/dashboard.py    web dashboard (stdlib, read-only) + dashboard.html
+run.py              CLI
+tests/              pytest (26 tests)
+```
+
+## ทดสอบ
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```

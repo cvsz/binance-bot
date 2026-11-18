@@ -1,0 +1,37 @@
+# คัดลอกเป็น config.yaml แล้วแก้ค่าตามต้องการ
+symbol: BTC/USDT          # คู่เทรด (spot เท่านั้น)
+timeframe: 15m            # 1m 5m 15m 1h 4h 1d
+
+exchange:
+  testnet: true           # true = Binance Spot Testnet (เงินปลอม) | false = เงินจริง
+
+strategy:
+  name: ema_cross         # ema_cross | rsi_reversion
+  params:
+    fast: 9
+    slow: 21
+    rsi_period: 14
+    rsi_max_entry: 70     # ไม่ซื้อถ้า RSI สูงเกินนี้ (กันไล่ราคา)
+  # ตัวอย่าง rsi_reversion:
+  # name: rsi_reversion
+  # params: {rsi_period: 14, oversold: 30, overbought: 70, trend_ema: 200}
+
+risk:
+  risk_per_trade_pct: 1.0   # ยอมขาดทุนต่อไม้ = 1% ของพอร์ต (ถ้าโดน stop)
+  stop_loss_pct: 2.0        # บังคับมี stop เสมอ
+  take_profit_pct: 4.0      # null = ไม่ใช้ TP
+  trailing_stop_pct: null   # เช่น 1.5 = เลื่อน stop ตามราคาสูงสุด
+  max_position_pct: 25      # ใช้เงินต่อไม้ไม่เกิน 25% ของพอร์ต
+  max_daily_loss_pct: 3.0   # ขาดทุนรายวันเกินนี้ -> หยุดเปิดไม้ใหม่จนถึงวันถัดไป (UTC)
+  max_trades_per_day: 10
+  cooldown_bars: 2          # รอกี่แท่งหลังปิดไม้
+
+paper:                      # ใช้กับ backtest และ paper
+  starting_quote: 1000      # เงินเริ่มต้น (USDT)
+  fee_pct: 0.1
+  slippage_pct: 0.05
+
+loop:
+  poll_seconds: 30
+
+db_path: data/bot.db
