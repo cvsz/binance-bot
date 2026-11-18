@@ -26,7 +26,7 @@
 
 ## เอกสาร
 
-คู่มือครบชุดอยู่ใน [docs/](docs/README.md): [สถาปัตยกรรม](docs/ARCHITECTURE.md) · [การตั้งค่า](docs/CONFIGURATION.md) · [ความเสี่ยง](docs/RISK.md) · [กลยุทธ์](docs/STRATEGIES.md) · [Runbook](docs/OPERATIONS.md) · [ความปลอดภัย](docs/SECURITY.md) · [คำสั่ง](docs/CLI.md) · [การพัฒนา](docs/DEVELOPMENT.md) · [แก้ปัญหา](docs/TROUBLESHOOTING.md) — ประวัติการเปลี่ยนแปลง: [CHANGELOG.md](CHANGELOG.md)
+คู่มือครบชุดอยู่ใน [docs/](docs/README.md): [สถาปัตยกรรม](docs/ARCHITECTURE.md) · [การตั้งค่า](docs/CONFIGURATION.md) · [ความเสี่ยง](docs/RISK.md) · [กลยุทธ์](docs/STRATEGIES.md) · [Runbook](docs/OPERATIONS.md) · [ความพร้อม production](docs/PRODUCTION.md) · [ความปลอดภัย](docs/SECURITY.md) · [คำสั่ง](docs/CLI.md) · [การพัฒนา](docs/DEVELOPMENT.md) · [แก้ปัญหา](docs/TROUBLESHOOTING.md) — ประวัติการเปลี่ยนแปลง: [CHANGELOG.md](CHANGELOG.md)
 
 ## เริ่มใช้งาน (Makefile)
 
@@ -144,7 +144,7 @@ run.py              CLI
 Makefile            คำสั่ง dev/ops (make เพื่อดูทั้งหมด)
 docs/               เอกสารครบชุด
 scripts/            ตรวจเอกสาร/ความลับ (make ci)
-tests/              pytest (53 tests)
+tests/              pytest (94 tests)
 ```
 
 ## ทดสอบ

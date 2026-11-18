@@ -1,4 +1,6 @@
 """Production-hardening regression tests: fill confirmation, stop reasons, reconciliation."""
+import sqlite3
+
 import ccxt
 import pytest
 
@@ -113,6 +115,48 @@ def test_cli_live_gate_refuses_without_keys(tmp_path, monkeypatch):
         monkeypatch.delenv(k, raising=False)
     cfg = write_cfg(tmp_path, body="exchange:\n  testnet: false\n")
     assert run.main(["-c", str(cfg), "live"]) == 2
+
+
+@pytest.mark.parametrize("error", [
+    ccxt.AuthenticationError("bad key"),
+    ccxt.AccountSuspended("suspended"),
+    ccxt.BadSymbol("bad symbol"),
+])
+def test_all_fatal_exchange_errors_stop_with_exit_3(error):
+    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)),
+               store=Store(), notifier=NullNotifier())
+
+    def fatal():
+        raise error
+
+    r.step = fatal
+    r.tick(30)
+    assert r._stop and r.exit_code == 3
+
+
+@pytest.mark.parametrize("field,value", [
+    ("stop_loss_pct", 0), ("stop_loss_pct", 100),
+    ("risk_per_trade_pct", 0), ("risk_per_trade_pct", 6),
+    ("max_position_pct", 0), ("max_position_pct", 101),
+    ("take_profit_pct", -1),
+    ("trailing_stop_pct", 0), ("trailing_stop_pct", 100),
+    ("max_daily_loss_pct", 0), ("max_daily_loss_pct", 101),
+    ("max_drawdown_halt_pct", 0), ("max_drawdown_halt_pct", 101),
+    ("max_trades_per_day", 0), ("cooldown_bars", -1),
+])
+def test_risk_config_rejects_invalid_values(field, value):
+    with pytest.raises(ValueError):
+        RiskConfig(**{field: value})
+
+
+def test_put_many_rolls_back_on_error(tmp_path):
+    s = Store(tmp_path / "x.db")
+    s.put("keep", 1)
+    s.db.execute("CREATE TRIGGER fail_b BEFORE INSERT ON state WHEN NEW.k='b' "
+                 "BEGIN SELECT RAISE(ABORT, 'boom'); END;")
+    with pytest.raises(sqlite3.IntegrityError):
+        s.put_many({"a": 1, "b": 2})
+    assert s.get("a") is None and s.get("keep") == 1
 
 
 def test_backoff_caps_at_600():

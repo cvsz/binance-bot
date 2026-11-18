@@ -23,6 +23,7 @@ make dashboard      # http://localhost:8080
 | [RISK.md](RISK.md) | ขนาดไม้, stop/TP/trailing, kill switch, การ halt/resume | ก่อนรัน live |
 | [STRATEGIES.md](STRATEGIES.md) | กลยุทธ์ที่มี, การเพิ่มกลยุทธ์ใหม่, วิธี backtest ให้ไม่หลอกตัวเอง | ปรับ/เพิ่มกลยุทธ์ |
 | [OPERATIONS.md](OPERATIONS.md) | Runbook: เส้นทาง backtest → paper → testnet → เงินจริง, tmux, Docker, backup, เหตุการณ์ฉุกเฉิน | รันและดูแลบอท |
+| [PRODUCTION.md](PRODUCTION.md) | ความพร้อม production: exit gate, checklist ก่อนเงินจริง, monitoring, backup/restore, change control | ก่อน/หลังปล่อยบอทให้รันจริง |
 | [SECURITY.md](SECURITY.md) | API key, permission ไฟล์, dashboard, threat model | ก่อนใส่ API key จริง |
 | [CLI.md](CLI.md) | อ้างอิงคำสั่ง `run.py`, `make` targets, exit codes, HTTP API ของ dashboard | ต้องการรายละเอียดคำสั่ง |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | dev setup, tests, lint, การล็อกเวอร์ชัน, git workflow | พัฒนา/แก้โค้ด |

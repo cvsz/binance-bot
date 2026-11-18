@@ -151,7 +151,7 @@ Backtest ใช้ DB ในหน่วยความจำ (ไม่เข�
 
 | Key | เนื้อหา | ผู้เขียน |
 |---|---|---|
-| `position` | `Position` ปัจจุบันหรือ `null` | Engine |
+| `position` | `Position` ปัจจุบันหรือ `null` (รวม `pending_order_id` ถ้าส่งขายแล้วยังไม่รู้ผล) | Engine |
 | `risk` | `RiskState` (day, day_start_equity, trades_today, last_exit_bar, halted_reason, peak_equity) | Engine |
 | `bar_index` | ตัวนับแท่ง (ใช้กับ cooldown) | Engine |
 | `paper_balances` | `[base, quote]` (paper เท่านั้น) | Engine |

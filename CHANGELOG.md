@@ -5,12 +5,12 @@
 ## [Unreleased] — branch `audit/hardening`
 
 ### Added
-- เอกสารครบชุดใน `docs/` (สถาปัตยกรรม, การตั้งค่า, ความเสี่ยง, กลยุทธ์, runbook, ความปลอดภัย, อ้างอิงคำสั่ง, การพัฒนา, แก้ปัญหา) และ `AGENTS.md`
+- เอกสารครบชุดใน `docs/` (สถาปัตยกรรม, การตั้งค่า, ความเสี่ยง, กลยุทธ์, runbook, **ความพร้อม production**, ความปลอดภัย, อ้างอิงคำสั่ง, การพัฒนา, แก้ปัญหา) และ `AGENTS.md`
 - `Makefile`: setup, quality gates (`check`, `ci`), trading, รันเบื้องหลังด้วย tmux, backup/restore, Docker, ตรวจเอกสาร/ความลับ
 - คำสั่ง `run.py health`, `run.py resume`, `run.py backup`
 - Kill switch `risk.max_drawdown_halt_pct` (หยุดเปิดไม้เมื่อพอร์ตลดจากจุดสูงสุด, ปลดด้วย `resume`)
 - Docker healthcheck, log rotation, `.dockerignore`, `constraints.txt` (เวอร์ชันที่ผ่านเทส), `pyproject.toml` (pytest + ruff)
-- Regression tests 27 รายการ (รวม 53)
+- Regression tests 68 รายการ (รวม 94) — ครอบ fill reconciliation, stop reason, trailing, resume, config, dashboard, kill switch, atomic save
 
 ### Fixed
 - **ออเดอร์ที่ fill แล้วหายเมื่อเน็ตหลุดหลังส่งคำสั่ง** → ค้นหาด้วย client order id; ถ้ายืนยันไม่ได้ halt + แจ้งเตือน
