@@ -53,7 +53,7 @@ define check_stopped
 	echo "bot container is up - run: make down"; exit 1; fi
 endef
 # $(call db_file) - shell expression resolving the DB path for MODE (testnet-aware)
-db_file = $$($(PY) -c "from bot.config import load_config, db_path_for; print(db_path_for(load_config('$(CONFIG)'), '$(MODE)'))")
+db_file = $$($(PY) -c 'import sys; from bot.config import load_config, db_path_for; print(db_path_for(load_config(sys.argv[1]), sys.argv[2]))' '$(CONFIG)' '$(MODE)')
 
 # ---- help --------------------------------------------------------------------
 .PHONY: help
@@ -267,11 +267,11 @@ backups: ## List available backups
 restore: $(STAMP) require-config ## Restore FILE=backups/x.db into MODE's DB (bot must be stopped; current DB is kept)
 	$(call check_mode)
 	@[ -n "$(FILE)" ] && [ -f "$(FILE)" ] || { echo "usage: make restore MODE=paper FILE=backups/bot.paper.<ts>.db"; exit 2; }
-	@$(PY) -c "import sqlite3, sys; \
-c = sqlite3.connect('file:$(FILE)?mode=ro', uri=True); \
-ok = c.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'; \
-t = {r[0] for r in c.execute(\"SELECT name FROM sqlite_master WHERE type='table'\")}; \
-sys.exit(0 if ok and {'trades', 'state', 'equity'} <= t else 1)" 2>/dev/null \
+	@FILE="$(FILE)" $(PY) -c 'import os, sqlite3, sys; \
+c = sqlite3.connect("file:" + os.environ["FILE"] + "?mode=ro", uri=True); \
+ok = c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"; \
+t = {r[0] for r in c.execute("SELECT name FROM sqlite_master")}; \
+sys.exit(0 if ok and {"trades", "state", "equity"} <= t else 1)' 2>/dev/null \
 	    || { echo "$(FILE) is not a valid bot database - nothing changed"; exit 2; }
 	$(call check_stopped)
 	@db=$(db_file); mkdir -p $(BACKUP_DIR)/pre-restore-$(TS); \
@@ -301,7 +301,7 @@ docker-build: ## Build the image (IMAGE=binance-bot:local)
 .PHONY: up
 up: config ## docker compose up: bot (MODE=paper|live) + dashboard (needs DASHBOARD_TOKEN)
 	$(call check_mode)
-	@grep -qE '^DASHBOARD_TOKEN=.+' .env || echo "warning: DASHBOARD_TOKEN is empty - the dashboard container will refuse to start"
+	@grep -qE '^DASHBOARD_TOKEN=.+' .env || { echo "DASHBOARD_TOKEN is empty in .env - set it before make up (dashboard binds 0.0.0.0)"; exit 2; }
 	@mkdir -p data
 	BOT_MODE=$(MODE) $(COMPOSE) up -d --build
 	@$(COMPOSE) ps

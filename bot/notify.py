@@ -6,9 +6,11 @@ import logging
 import os
 import time
 import urllib.request
+from collections import OrderedDict
 
 log = logging.getLogger(__name__)
 API = "https://api.telegram.org"
+MAX_TRACKED_MESSAGES = 500
 
 
 class Notifier:
@@ -19,7 +21,7 @@ class Notifier:
         self.token = token if token is not None else os.getenv("TELEGRAM_BOT_TOKEN")
         self.chat_id = chat_id if chat_id is not None else os.getenv("TELEGRAM_CHAT_ID")
         self.dedupe_seconds = dedupe_seconds
-        self._last_sent: dict[str, float] = {}
+        self._last_sent: OrderedDict[str, float] = OrderedDict()
 
     @property
     def enabled(self) -> bool:
@@ -31,9 +33,15 @@ class Notifier:
         if last is not None and now - last < self.dedupe_seconds:
             return True
         self._last_sent[text] = now
-        if len(self._last_sent) > 500:  # bound memory
+        self._last_sent.move_to_end(text)
+        if len(self._last_sent) > MAX_TRACKED_MESSAGES:
             cutoff = now - self.dedupe_seconds
-            self._last_sent = {k: v for k, v in self._last_sent.items() if v >= cutoff}
+            for key, when in list(self._last_sent.items()):
+                if when < cutoff:
+                    self._last_sent.pop(key, None)
+            # messages with dynamic prices can all be unique: cap unconditionally
+            while len(self._last_sent) > MAX_TRACKED_MESSAGES:
+                self._last_sent.popitem(last=False)
         return False
 
     def send(self, text: str) -> None:

@@ -196,7 +196,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
     try:
         cfg = load_config(args.config)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, TypeError) as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
     if args.cmd == "health":

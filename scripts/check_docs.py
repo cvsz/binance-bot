@@ -25,7 +25,14 @@ def slug(heading: str) -> str:
 
 def anchors(md: Path) -> set[str]:
     text = FENCE_RE.sub("", md.read_text(encoding="utf-8"))
-    return set(ANCHOR_TAG_RE.findall(text)) | {slug(h) for h in HEADING_RE.findall(text)}
+    anchors = set(ANCHOR_TAG_RE.findall(text))
+    seen: dict[str, int] = {}
+    for heading in HEADING_RE.findall(text):
+        base = slug(heading)
+        n = seen.get(base, 0)
+        seen[base] = n + 1
+        anchors.add(base if n == 0 else f"{base}-{n}")  # GitHub: second "Foo" becomes "foo-1"
+    return anchors
 
 
 def main(root: Path) -> int:

@@ -13,6 +13,18 @@ from .risk import RiskConfig
 TIMEFRAME_RE = re.compile(r"^\d+[smhdwM]$")
 SYMBOL_RE = re.compile(r"^[A-Z0-9]+/[A-Z0-9]+$")
 
+# Unknown keys are rejected everywhere: a typo must never silently change what
+# the bot does (especially exchange.testnet). `strategy.params` stays free-form
+# because each strategy validates its own parameter names.
+TOP_KEYS = {"symbol", "timeframe", "exchange", "strategy", "risk", "paper", "loop", "db_path"}
+SECTION_KEYS = {
+    "exchange": {"testnet"},
+    "strategy": {"name", "params"},
+    "paper": {"starting_quote", "fee_pct", "slippage_pct"},
+    "loop": {"poll_seconds"},
+    "risk": set(),  # validated by RiskConfig.from_dict with its own error message
+}
+
 
 @dataclass
 class AppConfig:
@@ -39,6 +51,8 @@ class AppConfig:
             raise ValueError("paper.fee_pct and paper.slippage_pct must be in [0, 5)")
         if self.poll_seconds < 5:
             raise ValueError("poll_seconds must be >= 5 to respect exchange rate limits")
+        if ".." in Path(self.db_path).parts:
+            raise ValueError("db_path must not contain '..' path segments")
 
 
 def _section(raw: dict, name: str) -> dict:
@@ -47,7 +61,22 @@ def _section(raw: dict, name: str) -> dict:
         return {}
     if not isinstance(val, dict):
         raise ValueError(f"config section '{name}' must be a mapping")
+    unknown = set(val) - SECTION_KEYS[name]
+    if unknown:
+        raise ValueError(f"unknown {name} settings: {sorted(unknown)} (valid: {sorted(SECTION_KEYS[name])})")
     return val
+
+
+def _bool(raw: dict, name: str, default: bool) -> bool:
+    """Strict boolean parsing: bool('false') is True, which is never what an operator means."""
+    value = raw.get(name, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    raise ValueError(f"{name} must be true or false, got {value!r}")
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -57,11 +86,14 @@ def load_config(path: str | Path) -> AppConfig:
     raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"{p} must contain a YAML mapping")
+    unknown = set(raw) - TOP_KEYS
+    if unknown:
+        raise ValueError(f"unknown config keys: {sorted(unknown)} (valid: {sorted(TOP_KEYS)})")
     ex, strat, paper, loop = (_section(raw, n) for n in ("exchange", "strategy", "paper", "loop"))
     return AppConfig(
         symbol=str(raw.get("symbol", "BTC/USDT")).upper(),
         timeframe=str(raw.get("timeframe", "15m")),
-        testnet=bool(ex.get("testnet", True)),
+        testnet=_bool(ex, "testnet", True),
         strategy=strat.get("name", "ema_cross"),
         strategy_params=strat.get("params") or {},
         risk=RiskConfig.from_dict(_section(raw, "risk")),

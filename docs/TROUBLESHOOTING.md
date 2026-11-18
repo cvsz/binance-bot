@@ -7,7 +7,9 @@
 | อาการ | สาเหตุ | วิธีแก้ |
 |---|---|---|
 | `config error: config.yaml not found` | ยังไม่ได้สร้าง config | `make config` |
-| `config error: unknown risk settings: […]` | สะกดชื่อ key ใน `risk:` ผิด | แก้ตามรายชื่อที่แสดงใน error |
+| `config error: unknown risk settings: […]` / `unknown config keys` / `unknown <section> settings` | สะกดชื่อ key ผิด (ทุก section ตรวจ) | แก้ตามรายชื่อที่แสดงใน error |
+| `config error: … must be true or false` | `testnet` เป็น string เช่น `"false"` (or `'yes'`) | ใช้ `true` / `false` แบบไม่ใส่เครื่องหมายคำพูด |
+| `config error: db_path must not contain '..'` | พยายามชี้ DB ออกนอกโปรเจกต์ | ใช้ path สัมพัทธ์ในโปรเจกต์ |
 | `config error: timeframe must look like …` | timeframe ผิดรูปแบบ | ใช้ `1m 5m 15m 1h 4h 1d` |
 | `invalid params for strategy 'ema_cross'` | ชื่อพารามิเตอร์ใน `strategy.params` ผิด | ดู [STRATEGIES.md](STRATEGIES.md) |
 | `refusing to start live trading: live mode needs BINANCE_TESTNET_API_KEY/SECRET` | ไม่มี key ใน `.env` | ใส่ key แล้ว `make doctor` |

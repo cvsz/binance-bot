@@ -9,7 +9,7 @@
 
 สร้างทั้งสองไฟล์: `make config` (ไม่เขียนทับไฟล์ที่มีอยู่) — ใช้ไฟล์ config อื่นด้วย `python run.py -c other.yaml …` หรือ `make … CONFIG=other.yaml`
 
-ค่าที่ผิดจะถูกปฏิเสธตอนเริ่มพร้อมข้อความชัดเจน (`config error: …`, exit code 2) — ตรวจได้ด้วย `make doctor`
+ค่าที่ผิดจะถูกปฏิเสธตอนเริ่มพร้อมข้อความชัดเจน (`config error: …`, exit code 2 รวมกรณี type ผิด) — ตรวจได้ด้วย `make doctor` **ชื่อ key ที่สะกดผิดทุก section (รวมระดับบน) ถูกปฏิเสธ** ไม่มีการเงียบไว้
 
 ## `config.yaml`
 
@@ -19,13 +19,13 @@
 |---|---|---|---|
 | `symbol` | `BTC/USDT` | รูปแบบ `BASE/QUOTE` ตัวพิมพ์ใหญ่ (แปลงให้อัตโนมัติ) | คู่เทรด spot |
 | `timeframe` | `15m` | ตัวเลข + `s m h d w M` เช่น `1m 5m 15m 1h 4h 1d` | ขนาดแท่งเทียน |
-| `db_path` | `data/bot.db` | — | ฐานของชื่อไฟล์ DB (เติม `.paper` / `.live.testnet` / `.live` ให้อัตโนมัติ) |
+| `db_path` | `data/bot.db` | ห้ามมี `..` | ฐานของชื่อไฟล์ DB (เติม `.paper` / `.live.testnet` / `.live` ให้อัตโนมัติ) |
 
 ### `exchange`
 
 | Key | ค่าเริ่มต้น | ความหมาย |
 |---|---|---|
-| `testnet` | `true` | `true` = Binance Spot Testnet (เงินปลอม) · `false` = เงินจริง (ต้องผ่านประตูความปลอดภัยเพิ่ม ดู [SECURITY.md](SECURITY.md#real-money-gates)) |
+| `testnet` | `true` | เฉพาะ `true` / `false` (หรือ YAML boolean) — `bool("false")` ไม่ถูกแปลงเป็น false · `true` = Binance Spot Testnet (เงินปลอม) · `false` = เงินจริง (ต้องผ่านประตูความปลอดภัยเพิ่ม ดู [SECURITY.md](SECURITY.md#real-money-gates)) |
 
 ### `strategy`
 

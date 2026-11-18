@@ -32,6 +32,9 @@
 - Permission: `.env` 755 → 600, โฟลเดอร์ 777 → 755; `.gitignore` ไม่ครอบคลุม `.venv/` และ `*.db`
 
 ### Security
+- Dashboard ไม่ log query string (กัน `DASHBOARD_TOKEN` รั่วผ่าน log บอท); Docker dashboard ได้เฉพาะ `DASHBOARD_TOKEN`
+- Config ปฏิเสธ key ที่สะกดผิดทุก section, parse boolean แบบเข้มงวด, ปฏิเสธ `..` ใน `db_path`, และรายงาน type ผิดเป็น `config error` (exit 2)
+- `check_secrets.py` ตรวจ git history ด้วย; `check_docs.py` เข้าใจ anchor ที่ซ้ำกัน; `Makefile` ส่งค่า path ผ่าน argv/env แทนการฝังในโค้ด Python; Telegram dedup จำกัดจำนวนข้อความที่ track
 - ตรวจประตูเงินจริงซ้ำใน `Runner.run()` (defense in depth)
 - ไม่ log URL ของ Telegram (มี token)
 - Container รันด้วย uid 1000 คงที่

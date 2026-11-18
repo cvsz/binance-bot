@@ -23,12 +23,28 @@ def tracked_files(root: Path) -> list[str]:
     return [f for f in out.stdout.splitlines() if f]
 
 
+def history_credential_keys(root: Path) -> set[str]:
+    """Scan added lines across all history so a committed-then-deleted key still fails."""
+    cmd = ["git", "log", "--all", "-p", "--unified=0", "--no-color", "--format="]  # noqa: S607
+    out = subprocess.run(cmd, cwd=root, capture_output=True, text=True, check=True)  # noqa: S603
+    found = set()
+    for line in out.stdout.splitlines():
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        m = CRED_RE.search(line)
+        if m and not PLACEHOLDER_RE.fullmatch(m.group(2)):
+            found.add(m.group(1).lower())
+    return found
+
+
 def main(root: Path) -> int:
     problems: list[str] = []
     files = tracked_files(root)
     for f in files:
         if FORBIDDEN_TRACKED.search(f) and Path(f).name not in ALLOWED_TRACKED:
             problems.append(f"sensitive file tracked by git: {f}")
+    for key in sorted(history_credential_keys(root)):
+        problems.append(f"credential-looking value in git history (key '{key}')")
     for f in files:
         p = root / f
         if not p.is_file() or p.stat().st_size > 2_000_000:

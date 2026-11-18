@@ -9,6 +9,7 @@ import hmac
 import json
 import logging
 import os
+import re
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -87,8 +88,14 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "BotDashboard/1.0"
 
+        def log_request(self, code="-", size="-"):
+            # BaseHTTPRequestHandler logs the whole request line, which contains
+            # ?token=<DASHBOARD_TOKEN>. Log only the path.
+            log.debug("%s %s %s", self.address_string(), code, urlparse(self.path).path)
+
         def log_message(self, fmt, *args):
-            log.debug("%s %s", self.address_string(), fmt % args)
+            message = re.sub(r"token=[^&\s]+", "token=<redacted>", fmt % args)
+            log.debug("%s %s", self.address_string(), message)
 
         def _send(self, code: int, body: bytes, ctype: str) -> None:
             self.send_response(code)

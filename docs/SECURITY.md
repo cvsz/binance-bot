@@ -50,14 +50,17 @@ Testnet key (https://testnet.binance.vision) แยกจาก key จริง
 
 - **อ่านอย่างเดียว**: เปิด SQLite ด้วย `mode=ro` ไม่มี endpoint ที่ส่งคำสั่งเทรดหรือแก้สถานะ
 - **bind `127.0.0.1` เป็นค่าเริ่มต้น**; bind ที่อื่นต้องมี `DASHBOARD_TOKEN` ไม่งั้นไม่ยอมเริ่ม
-- Token เทียบด้วย `hmac.compare_digest` (กัน timing attack) รับทาง header `X-Dashboard-Token` หรือ query `?token=`
-- Header ความปลอดภัย: CSP (`default-src 'self'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`
+- Token เทียบด้วย `hmac.compare_digest` (กัน timing attack) รับทาง header `X-Dashboard-Token` หรือ query `?token=` (แนะนำ header เพื่อไม่ให้ token ติด history)
+- บอทเขียน log เฉพาะ path ของ request และซ่อน `token=…` ในข้อความอื่น → token ไม่รั่วผ่าน log ของบอทเอง (อย่างไรก็ตาม proxy/docs อื่นยังอาจเก็บ URL ได้)
+- Header ความปลอดภัย: CSP (`default-src 'self'`; อนุญาต `unsafe-inline` เฉพาะ `<style>`/`<script>` ที่เป็นไฟล์ของบอทเอง), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`
 - **ไม่มี HTTPS ในตัว** — token ใน URL อาจติดใน history/log ของ proxy → เข้าจากนอกเครื่องผ่าน **SSH tunnel** หรือ **Cloudflare Tunnel + Access** เท่านั้น อย่าเปิดพอร์ตตรงสู่อินเทอร์เน็ต
+- Docker: container `dashboard` ได้เฉพาะ `DASHBOARD_TOKEN` (ไม่ได้ `.env` ทั้งไฟล์) จึงไม่มี API key จริงอยู่ใน container ที่หันสู่อินเทอร์เน็ต
 - Docker เผยพอร์ตเฉพาะ `127.0.0.1:8080`
 - `/healthz` ไม่ต้องใช้ token (ไม่มีข้อมูลภายใน)
 
 ## Supply chain
 
+- `make secrets-check` ตรวจทั้งไฟล์ปัจจุบัน **และ git history** (key ที่เคย commit แล้วลบไปก็ยัง fail) — ยังควรใช้ secret scanner เฉพาะทางควบคู่กัน ไม่ใช่หลักฐานว่าหมดความเสี่ยง
 - Dependency มีเพดานเวอร์ชันใน `requirements.txt` และล็อกเวอร์ชันที่ผ่านเทสใน `constraints.txt` (Docker ใช้ไฟล์นี้)
 - อัปเดต dependency: ติดตั้งเวอร์ชันใหม่ใน venv → `make check` → `make lock` → review diff ของ `constraints.txt`
 - Container รันด้วย user ไม่ใช่ root (`bot`, uid 1000)

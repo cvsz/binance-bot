@@ -124,6 +124,7 @@ docker compose logs -f
 - **Stop-loss/TP ทำงานฝั่งบอท** (บอทเช็คราคาทุก `poll_seconds`) ถ้าบอทดับ stop จะไม่ทำงาน — ควรรันบน VPS/Docker ที่ `restart: unless-stopped` และเปิดแจ้งเตือน Telegram
 - จำกัดขาดทุนรายวันนับตามวัน **UTC** (07:00 เวลาไทย)
 - ในโหมด live ขนาดไม้/ขาดทุนรายวัน/drawdown คำนวณจาก **ยอดทั้งบัญชี** (base + quote) ถ้ามีเหรียญเดิมอยู่ ราคาเหรียญเดิมจะมีผลด้วย — แนะนำใช้ sub-account แยกสำหรับบอท
+- config เข้มงวด: ชื่อ key ที่สะกดผิดทุก section ถูกปฏิเสธ, `testnet` ต้องเป็น `true`/`false` (ไม่แปลง `"false"` เป็น false), `db_path` ห้ามมี `..`
 - `.env` ควรเป็น `chmod 600` (อ่านได้เฉพาะเจ้าของ)
 - ใช้ Binance global (binance.com) — **Binance TH** เป็นคนละระบบ/API ใช้กับบอทนี้ไม่ได้โดยตรง
 - กำหนดค่าธรรมเนียม/slippage ใน `paper` ให้ใกล้ของจริง (Binance spot ปกติ 0.1%)

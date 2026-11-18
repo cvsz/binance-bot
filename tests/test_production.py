@@ -4,9 +4,9 @@ import pytest
 
 import run
 from bot.broker import LiveBroker, PaperBroker
-from bot.config import AppConfig
+from bot.config import AppConfig, load_config
 from bot.engine import RESUME_KEY, Engine
-from bot.notify import NullNotifier
+from bot.notify import Notifier, NullNotifier
 from bot.risk import Position, RiskConfig, RiskManager
 from bot.runner import Runner
 from bot.store import Store
@@ -137,6 +137,63 @@ def test_untracked_wallet_balance_halts_entries():
     assert r.engine.position is None
     assert "untracked" in r.engine.risk.state.halted_reason
     assert any("HALTED" in m for m in r.engine.notifier.msgs)
+
+
+@pytest.mark.parametrize("body", [
+    "testnetz: true\n",
+    "exchange:\n  testnet: true\n  tyop: 1\n",
+    "loop:\n  poll_second: 30\n",
+])
+def test_config_rejects_unknown_keys(tmp_path, body):
+    with pytest.raises(ValueError, match="unknown"):
+        load_config(write_cfg(tmp_path, body=body))
+
+
+@pytest.mark.parametrize("value,expected", [("true", True), ("false", False), ("FALSE", False)])
+def test_config_parses_booleans_strictly(tmp_path, value, expected):
+    cfg = load_config(write_cfg(tmp_path, body=f"exchange:\n  testnet: {value}\n"))
+    assert cfg.testnet is expected
+
+
+def test_config_rejects_loose_boolean(tmp_path):
+    with pytest.raises(ValueError, match="true or false"):
+        load_config(write_cfg(tmp_path, body="exchange:\n  testnet: 'yes'\n"))
+
+
+def test_config_rejects_parent_path(tmp_path):
+    with pytest.raises(ValueError, match="db_path"):
+        load_config(write_cfg(tmp_path, body="db_path: ../outside/bot.db\n"))
+
+
+def test_cli_reports_type_error_as_config_error(tmp_path, capsys):
+    cfg = write_cfg(tmp_path, body="risk:\n  stop_loss_pct: abc\n")
+    assert run.main(["-c", str(cfg), "status"]) == 2
+    assert "config error" in capsys.readouterr().err
+
+
+def test_notifier_send_suppresses_duplicate_http(monkeypatch):
+    calls = []
+
+    class Response:
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(req)
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    n = Notifier(token="t", chat_id="c")
+    n.send("same message")
+    n.send("same message")
+    assert len(calls) == 1
+
+
+def test_notifier_tracking_is_bounded():
+    n = Notifier(token="t", chat_id="c")
+    for i in range(600):
+        n._suppressed(f"unique message {i}")
+    assert len(n._last_sent) <= 500
 
 
 def test_live_sizing_keeps_fee_headroom():

@@ -23,7 +23,9 @@ services:
   dashboard:
     build: .
     command: ["dashboard", "--host", "0.0.0.0", "--port", "8080"]
-    env_file: .env              # DASHBOARD_TOKEN is required
+    # Never hand the whole .env (real API keys) to the network-facing container.
+    environment:
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}   # app refuses 0.0.0.0 bind when empty; make up also checks
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
