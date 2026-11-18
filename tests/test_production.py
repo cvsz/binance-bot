@@ -1,5 +1,6 @@
 """Production-hardening regression tests: fill confirmation, stop reasons, reconciliation."""
 import sqlite3
+from pathlib import Path
 
 import ccxt
 import pytest
@@ -181,6 +182,15 @@ def test_untracked_wallet_balance_halts_entries():
     assert r.engine.position is None
     assert "untracked" in r.engine.risk.state.halted_reason
     assert any("HALTED" in m for m in r.engine.notifier.msgs)
+
+
+def test_example_config_loads_with_all_risk_keys():
+    """Every key shipped in config.example.yaml must be accepted."""
+    example = Path(__file__).resolve().parents[1] / "config.example.yaml"
+    cfg = load_config(example)
+    assert cfg.risk.stop_loss_pct == 2.0
+    assert cfg.risk.risk_per_trade_pct == 1.0
+    assert cfg.testnet is True
 
 
 @pytest.mark.parametrize("body", [

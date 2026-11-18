@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import yaml
@@ -22,7 +22,7 @@ SECTION_KEYS = {
     "strategy": {"name", "params"},
     "paper": {"starting_quote", "fee_pct", "slippage_pct"},
     "loop": {"poll_seconds"},
-    "risk": set(),  # validated by RiskConfig.from_dict with its own error message
+    "risk": {f.name for f in fields(RiskConfig)},  # same names RiskConfig validates
 }
 
 
