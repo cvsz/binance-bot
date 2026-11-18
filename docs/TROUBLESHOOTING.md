@@ -28,6 +28,7 @@
 | `entry skipped: daily loss …` / `max drawdown …` | kill switch ทำงาน | ดู [RISK.md](RISK.md) — daily ปลดเองวันถัดไป, drawdown ต้อง `make resume` |
 | `entry skipped: cooldown` / `max trades per day reached` | ข้อจำกัดตาม config | ปกติ |
 | `⛔ HALTED … order state unknown` | ส่งออเดอร์แล้วยืนยันผลไม่ได้ | ทำตาม [OPERATIONS.md](OPERATIONS.md) หัวข้อเหตุการณ์ฉุกเฉิน แล้ว `make resume` |
+| `⛔ HALTED … untracked … in wallet (no position/stop)` | มีเหรียญ base ค้างในกระเป๋าแต่ไม่มี position (ซื้อแล้ว fill แต่สถานะไม่เซฟ / crash) | ตรวจบน Binance ว่าจะขายหรือติดตามไม้เอง แล้ว `make resume MODE=…` |
 | `position … dropped (dust)` | ไม้เล็กกว่าขั้นต่ำ ขายไม่ได้ | เหรียญค้างในกระเป๋า แปลงเป็น BNB บน Binance ได้ |
 | `position … dropped (missing)` / `missing from wallet; cleared` | ขายด้วยมือ/โอนออก/เหรียญถูกล็อกใน open order | ตรวจกระเป๋า; ยกเลิก open order ที่ล็อกเหรียญถ้าไม่ได้ตั้งใจ |
 | `not enough candles yet` | คู่เทรดใหม่หรือ testnet มีข้อมูลน้อยกว่า warmup | ลด warmup (เช่น `trend_ema`) หรือใช้คู่อื่น |

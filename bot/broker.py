@@ -35,8 +35,14 @@ class PositionMissingError(BrokerError):
 class OrderStateUnknown(BrokerError):
     """An order may or may not have executed (e.g. timeout after submission).
 
-    The account state must be checked manually before trading continues.
+    The account state must be checked manually before trading continues. The
+    client order id travels with the exception so it can be reconciled later
+    instead of silently dropping an already-filled position.
     """
+
+    def __init__(self, message: str, client_order_id: str | None = None):
+        super().__init__(message)
+        self.client_order_id = client_order_id
 
 
 class PaperBroker:
@@ -153,15 +159,21 @@ class LiveBroker:
                     continue
             raise OrderStateUnknown(
                 f"{side} order {cid} submitted but its state is unknown after {self.lookup_attempts} lookups "
-                f"- check open orders/balances on Binance") from exc
+                f"- check open orders/balances on Binance", client_order_id=cid) from exc
 
-    def _settle(self, before: tuple[float, float]) -> tuple[float, float] | None:
-        """Wait for balances to reflect the fill. None if balances cannot be read."""
+    def _settle(self, before: tuple[float, float], expected: float, side: str) -> tuple[float, float] | None:
+        """Wait for the wallet to reflect the WHOLE fill, not just a partial change.
+
+        `expected` is the base-asset amount the exchange reported as filled (net of
+        a base-denominated fee on buys). Without it, a partial fill or an unrelated
+        transfer could be mistaken for a completed order and leave coins untracked.
+        """
         try:
             after = before
             for _ in range(self.settle_attempts):
                 after = self.balances()
-                if after != before:
+                moved = after[0] - before[0] if side == "buy" else before[0] - after[0]
+                if expected <= 0 or moved >= expected * 0.999999:
                     return after
                 time.sleep(self.settle_delay)
             return after
@@ -175,6 +187,32 @@ class LiveBroker:
         fees = order.get("fees") or ([order["fee"]] if order.get("fee") else [])
         return sum(float(f.get("cost") or 0) for f in fees if f and f.get("currency") == ccy)
 
+    def fill_from_order(self, client_order_id: str, side: str) -> Fill | None:
+        """Reconcile an order whose result was lost, by client order id.
+
+        Returns None when the order is unknown, still open or was canceled — the
+        caller keeps the position and the halt in place in that case.
+        """
+        try:
+            order = self.ex.fetch_order("", self.symbol, {"clientOrderId": client_order_id})
+        except (ccxt.OrderNotFound, ccxt.NetworkError):
+            return None
+        if order.get("status") in ("canceled", "expired", "rejected"):
+            return None
+        filled = float(order.get("filled") or 0)
+        if filled <= 0:
+            return None
+        if side == "buy":
+            qty = filled - self._fee(order, self.base_ccy)
+            quote = float(order.get("cost") or 0) + self._fee(order, self.quote_ccy)
+        else:
+            qty = filled
+            quote = float(order.get("cost") or 0) - self._fee(order, self.quote_ccy)
+        if qty <= 0:
+            return None
+        avg = float(order.get("average") or 0) or (quote / qty)
+        return Fill(side, qty, avg, quote, str(order.get("id", "")))
+
     # ---- orders -----------------------------------------------------------
     def buy_quote(self, quote_amount: float, price: float) -> Fill:
         if quote_amount < self.min_order_quote():
@@ -182,18 +220,21 @@ class LiveBroker:
         before = self.balances()
         cost = float(self.ex.cost_to_precision(self.symbol, quote_amount))
         order = self._submit("buy", lambda p: self.ex.create_market_buy_order_with_cost(self.symbol, cost, p))
-        after = self._settle(before)
+        expected = max(0.0, float(order.get("filled") or 0) - self._fee(order, self.base_ccy))
+        after = self._settle(before, expected, "buy")
         qty = after[0] - before[0] if after else 0.0
         spent = before[1] - after[1] if after else 0.0
         if qty <= 0:
             # fall back to what the exchange reported for the order itself
             filled = float(order.get("filled") or 0)
             qty = filled - self._fee(order, self.base_ccy)
-            spent = float(order.get("cost") or 0)
+            spent = float(order.get("cost") or 0) + self._fee(order, self.quote_ccy)
             if qty <= 0:
                 if order.get("status") in ("canceled", "expired", "rejected"):
                     raise BrokerError(f"buy order {order.get('id')} {order.get('status')} with no fill")
-                raise OrderStateUnknown(f"buy order {order.get('id')} accepted but fill could not be confirmed")
+                raise OrderStateUnknown(
+                    f"buy order {order.get('id')} accepted but fill could not be confirmed",
+                    client_order_id=order.get("clientOrderId")) from None
             log.warning("buy fill taken from order response (balances unavailable)")
         avg = order.get("average") or (spent / qty)
         log.info("LIVE BUY %s qty=%.8f avg=%.8f spent=%.4f", self.symbol, qty, avg, spent)
@@ -214,7 +255,8 @@ class LiveBroker:
         except ccxt.InvalidOrder as exc:
             raise DustError(str(exc)) from exc
         order = self._submit("sell", lambda p: self.ex.create_market_sell_order(self.symbol, amount, p))
-        after = self._settle(before)
+        expected = max(0.0, float(order.get("filled") or 0))
+        after = self._settle(before, expected, "sell")
         sold = before[0] - after[0] if after else 0.0
         received = after[1] - before[1] if after else 0.0
         if sold <= 0:
@@ -223,7 +265,9 @@ class LiveBroker:
             if sold <= 0:
                 if order.get("status") in ("canceled", "expired", "rejected"):
                     raise BrokerError(f"sell order {order.get('id')} {order.get('status')} with no fill")
-                raise OrderStateUnknown(f"sell order {order.get('id')} accepted but fill could not be confirmed")
+                raise OrderStateUnknown(
+                    f"sell order {order.get('id')} accepted but fill could not be confirmed",
+                    client_order_id=order.get("clientOrderId")) from None
             log.warning("sell fill taken from order response (balances unavailable)")
         avg = order.get("average") or (received / sold if sold else price)
         log.info("LIVE SELL %s qty=%.8f avg=%.8f received=%.4f", self.symbol, sold, avg, received)

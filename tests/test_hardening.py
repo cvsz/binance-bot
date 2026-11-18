@@ -128,7 +128,7 @@ def test_trailing_stop_persisted(tmp_path):
     e = Engine("BTC/USDT", PaperBroker(1000, 0, 0),
                RiskManager(RiskConfig(take_profit_pct=None, trailing_stop_pct=1)), Store(db), mode="t")
     e.on_signal("2025-01-01 00:00", BUY, 100)
-    e.on_price("t", low=100, high=120)
+    e.on_price("t", low=119, high=120)  # low above the raised stop, so the position survives
     assert Store(db).get("position")["stop"] == pytest.approx(118.8)
 
 

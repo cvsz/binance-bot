@@ -14,6 +14,7 @@
 - ไม้ที่เล็กกว่าขั้นต่ำของตลาด (`limits.cost.min` ของ Binance, ปกติ 5 USDT) จะถูกข้าม
 - ค่าธรรมเนียมไม่ได้ถูกรวมในสูตร — ความเสี่ยงจริงสูงกว่า `risk_per_trade_pct` เล็กน้อย (≈ 2 × fee + slippage)
 - **live**: `equity` = มูลค่า base + quote **ทั้งบัญชี** ถ้ามีเหรียญเดิมอยู่ ขนาดไม้และขีดจำกัดต่างๆ จะคิดรวมเหรียญเดิมด้วย → แนะนำ **sub-account แยกสำหรับบอท**
+- **live** กันไว้ 1% ของ quote ว่างก่อนคำนวณขนาดไม้ (fee headroom) เพื่อไม่ให้ market buy + ค่าธรรมเนียมเกินยอดคงเหลือ
 
 ## Stop-loss / Take-profit / Trailing
 
@@ -21,7 +22,7 @@
 |---|---|---|
 | Stop | `entry × (1 − stop_loss_pct%)` | บังคับมีเสมอ |
 | Take profit | `entry × (1 + take_profit_pct%)` | `null` = ไม่ใช้ |
-| Trailing | `peak × (1 − trailing_stop_pct%)` | stop เลื่อนขึ้นอย่างเดียว ไม่เลื่อนลง; บันทึกลง DB ทันทีที่เลื่อน |
+| Trailing | `peak × (1 − trailing_stop_pct%)` | stop เลื่อนขึ้นอย่างเดียว ไม่เลื่อนลง; บันทึกลง DB ทันทีที่เลื่อน; ถ้า stop ใหม่ถูก low ของแท่งเดียวกันทะลุจะออกที่ stop ใหม่ในแท่งนั้นเลย |
 
 เหตุผลการออก (`reason` ในตาราง trades): `signal`, `stop_loss`, `trailing_stop` (stop อยู่เหนือราคาเข้า), `stop_gap` (ราคาเปิด gap ต่ำกว่า stop — backtest เท่านั้น), `take_profit`
 
@@ -42,6 +43,7 @@ Stop/TP **ไม่ได้วางไว้บน Binance** — บอทเ�
 | ขาดทุนรายวัน | `(equity ต้นวัน − equity) / equity ต้นวัน ≥ max_daily_loss_pct` (วัน UTC = 07:00 เวลาไทย) | อัตโนมัติเมื่อขึ้นวันใหม่ |
 | Drawdown จากจุดสูงสุด | `(peak − equity) / peak ≥ max_drawdown_halt_pct` (ถ้าตั้งค่า) | `make resume MODE=…` |
 | สถานะออเดอร์ไม่แน่นอน | ส่งออเดอร์แล้วยืนยันผลไม่ได้แม้ค้นหาด้วย client order id แล้ว | ตรวจบัญชีบน Binance ก่อน แล้ว `make resume MODE=…` |
+| เหรียญในกระเป๋าโดยไม่มี position | ซื้อแล้ว fill แต่สถานะยังไม่เซฟ / crash แล้วมี base ค้าง | ตรวจบัญชีว่าจะขายหรือติดตามไม้เอง แล้ว `make resume MODE=…` |
 
 ข้อจำกัดอื่นที่ไม่ใช่ halt (แค่ข้ามการเข้าไม้):
 

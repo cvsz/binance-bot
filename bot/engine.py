@@ -13,6 +13,8 @@ from .strategies import BUY, SELL
 log = logging.getLogger(__name__)
 
 RESUME_KEY = "resume_requested"
+# keep a little quote back so a market buy plus its fee never exceeds the free balance
+LIVE_FEE_HEADROOM = 0.01
 
 
 class Engine:
@@ -53,9 +55,11 @@ class Engine:
         """Clear a halt if `run.py resume` asked for it (works while the bot is running)."""
         if self.store.get(RESUME_KEY) is None:
             return
-        self.store.delete(RESUME_KEY)
         prev = self.risk.resume(self.equity(price) if price else None)
         self.save()
+        # delete only AFTER the new state is durable: a crash in between must not
+        # silently lose the operator's resume request
+        self.store.delete(RESUME_KEY)
         log.warning("trading resumed by operator (was: %s)", prev)
         self.notifier.send(f"[{self.mode}] ▶️ resumed by operator (was halted: {prev})")
 
@@ -78,7 +82,8 @@ class Engine:
         if not ok:
             log.info("%s entry skipped: %s", ts, reason)
             return
-        size = self.risk.position_size_quote(equity, quote)
+        available = quote * (1 - LIVE_FEE_HEADROOM) if self.broker.live else quote
+        size = self.risk.position_size_quote(equity, available)
         if size < self.broker.min_order_quote():
             log.info("%s entry skipped: size %.2f below minimum order", ts, size)
             return
@@ -92,7 +97,8 @@ class Engine:
             return
         stop, take = self.risk.levels(fill.price)
         self.position = Position(qty=fill.qty, entry_price=fill.price, cost_quote=fill.quote,
-                                 stop=stop, take=take, peak=fill.price, opened_at=ts)
+                                 stop=stop, take=take, peak=fill.price, opened_at=ts,
+                                 pending_order_id=None)
         self.risk.record_entry()
         self.save()  # persist the position before anything else can fail
         self.store.log_trade(ts=ts, mode=self.mode, symbol=self.symbol, side="buy", qty=fill.qty,
@@ -111,22 +117,8 @@ class Engine:
         log.error("%s position dropped (%s): %s", ts, reason, detail)
         self.notifier.send(f"[{self.mode}] ⚠️ position {self.symbol} dropped ({reason}): {detail}")
 
-    def _exit(self, ts: str, price: float, reason: str) -> None:
-        pos = self.position
-        try:
-            fill = self.broker.sell_qty(pos.qty, price)
-        except DustError as exc:
-            return self._drop_position(ts, "dust", f"{exc}; left in wallet")
-        except PositionMissingError as exc:
-            return self._drop_position(ts, "missing", str(exc))
-        except OrderStateUnknown as exc:
-            # keep the position: the next tick retries; if it did sell, the retry sees an
-            # empty wallet and drops it. Block entries until checked.
-            return self._halt(f"sell order state unknown ({reason}): {exc}")
-        except BrokerError as exc:
-            log.error("%s sell failed (%s): %s", ts, reason, exc)
-            self.notifier.send(f"[{self.mode}] ⚠️ SELL FAILED {self.symbol}: {exc}")
-            return
+    def _record_exit(self, ts: str, fill, pos: Position, reason: str) -> None:
+        """Book a completed sell exactly once (called from the normal and recovered paths)."""
         pnl = fill.quote - pos.cost_quote * (fill.qty / pos.qty if pos.qty else 1)
         self.position = None
         self.risk.record_exit(self.bar_index)
@@ -136,11 +128,41 @@ class Engine:
                              order_id=fill.order_id)
         self.notifier.send(f"[{self.mode}] SELL {self.symbol} ({reason}) @ {fill.price:.4f} PnL={pnl:+.2f}")
 
+    def _exit(self, ts: str, price: float, reason: str) -> None:
+        pos = self.position
+        # A previous sell may have filled while its result was lost. Reconcile by
+        # client order id BEFORE retrying, so the wallet looks empty but the PnL is
+        # still recorded instead of the position being dropped as "missing".
+        if pos.pending_order_id and hasattr(self.broker, "fill_from_order"):
+            recovered = self.broker.fill_from_order(pos.pending_order_id, "sell")
+            if recovered is not None:
+                log.warning("%s recovered sell %s by client order id", ts, pos.pending_order_id)
+                return self._record_exit(ts, recovered, pos, reason)
+        try:
+            fill = self.broker.sell_qty(pos.qty, price)
+        except DustError as exc:
+            return self._drop_position(ts, "dust", f"{exc}; left in wallet")
+        except PositionMissingError as exc:
+            return self._drop_position(ts, "missing", str(exc))
+        except OrderStateUnknown as exc:
+            # keep the position: the next tick retries; if it did sell, the retry
+            # reconciles via the client id and books the real fill. Block entries
+            # until a human checks.
+            pos.pending_order_id = exc.client_order_id
+            self.save()
+            return self._halt(f"sell order state unknown ({reason}): {exc}")
+        except BrokerError as exc:
+            log.error("%s sell failed (%s): %s", ts, reason, exc)
+            self.notifier.send(f"[{self.mode}] ⚠️ SELL FAILED {self.symbol}: {exc}")
+            return
+        self._record_exit(ts, fill, pos, reason)
+
     # ---- event handlers --------------------------------------------------
     def on_price(self, ts: str, low: float, high: float, open_: float | None = None) -> None:
         """Manage stop / take-profit / trailing for an open position.
 
-        Backtest passes bar open/low/high; live passes the last price for all three.
+        Backtest passes bar open/low/high; live passes the last price for low/high
+        and NO open (otherwise every live stop would be mislabeled as a gap).
         If a bar touches both stop and target, the stop is assumed first (conservative).
         """
         pos = self.position
@@ -159,11 +181,18 @@ class Engine:
         self.risk.update_trailing(pos, high)
         if pos.stop != old_stop:
             self.save()  # a raised trailing stop must survive a restart
+            # the new stop may already have been breached by this very bar's low
+            if low <= pos.stop:
+                return self._exit(ts, pos.stop, "trailing_stop")
 
-    def on_signal(self, ts: str, signal: int, price: float) -> None:
-        """Called once per closed bar with that bar's strategy signal."""
+    def on_signal(self, ts: str, signal: int, price: float, mark_price: float | None = None) -> None:
+        """Called once per closed bar with that bar's strategy signal.
+
+        `price` is the execution price; `mark_price` (when given) is used only for
+        risk/equity checks so the backtest's kill switches and equity curve agree.
+        """
         self.bar_index += 1
-        equity = self.equity(price)
+        equity = self.equity(mark_price if mark_price is not None else price)
         self.risk.roll_day(ts[:10], equity)
         was_halted = self.risk.state.halted_reason
         self.risk.observe_equity(equity)

@@ -117,7 +117,8 @@ def test_gap_below_stop_fills_at_open():
 def test_take_profit_and_trailing():
     e = make_engine(stop_loss_pct=2, take_profit_pct=None, trailing_stop_pct=1)
     e.on_signal("2025-01-01 00:00", BUY, 100)
-    e.on_price("t", low=100, high=110)
+    # a bar whose low is ABOVE the raised stop must keep the position
+    e.on_price("t", low=109.5, high=110)
     assert e.position.stop == pytest.approx(108.9)
     e.on_price("t", low=108.5, high=109)
     assert e.position is None and e.store.trades()[-1]["reason"] == "trailing_stop"

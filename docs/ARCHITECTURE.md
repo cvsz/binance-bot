@@ -54,12 +54,12 @@ flowchart LR
 
 สำหรับแท่งที่ `i`:
 
-1. `engine.on_signal(ts, pending, open[i])` — สัญญาณที่คำนวณได้ตอน **ปิดแท่ง i-1** ถูกส่งคำสั่งที่ **ราคาเปิดแท่ง i** (เหมือนที่บอทจริงทำได้ ไม่มี lookahead)
+1. `engine.on_signal(ts, pending, open[i], mark_price=close[i])` — สัญญาณที่คำนวณได้ตอน **ปิดแท่ง i-1** ถูกส่งคำสั่งที่ **ราคาเปิดแท่ง i** (เหมือนที่บอทจริงทำได้ ไม่มี lookahead) ส่วนการตรวจความเสี่ยง/kill switch ใช้ราคาปิดแท่งเพื่อให้ตรงกับกราฟ equity
 2. `engine.on_price(ts, low[i], high[i], open_=open[i])` — ตรวจ stop/TP ภายในแท่ง:
    - ราคาเปิด gap ต่ำกว่า stop → ออกที่ราคาเปิด (`stop_gap`)
    - low แตะ stop → ออกที่ราคา stop (`stop_loss` หรือ `trailing_stop` ถ้า stop อยู่เหนือราคาเข้า)
    - ถ้าแท่งเดียวแตะทั้ง stop และ TP → **ถือว่าโดน stop ก่อน** (conservative)
-   - จากนั้นจึงเลื่อน trailing stop ด้วย high ของแท่ง
+   - เลื่อน trailing stop ด้วย high ของแท่ง แล้ว **เช็คซ้ำกับ low ของแท่งเดียวกัน** — ถ้า stop ใหม่ถูกทะลุให้ออกที่ stop ใหม่ทันที (ไม่อนุรักษ์นิยมเกินไปแบบเดิมที่รอแท่งถัดไป)
 3. `pending = signals[i]` สำหรับแท่งถัดไป, บันทึก equity ที่ราคาปิด
 
 ### Paper / Live (`bot/runner.py`)
@@ -79,13 +79,14 @@ sequenceDiagram
         R->>E: on_signal(now, signal ของแท่งที่เพิ่งปิด, ราคาล่าสุด)
         E->>S: save (transaction เดียว)
     end
-    R->>E: on_price(now, last, last) → stop/TP/trailing
+    R->>E: on_price(now, last, last, open_=None) → stop/TP/trailing
     R->>S: save + heartbeat + equity (เมื่อมีแท่งใหม่)
 ```
 
 - **รันครั้งแรก**: จำแท่งล่าสุดไว้เฉยๆ ไม่เทรดบนแท่งนั้น (กันการเข้าไม้จากสัญญาณเก่า)
 - **สัญญาณ** คำนวณจากแท่งที่ปิดแล้วเท่านั้น (`drop_open_candle`)
-- **Stop/TP** เช็คกับราคาล่าสุดทุกรอบ poll — ระหว่างรอบราคาอาจวิ่งผ่าน stop ได้ การออกจริงเป็น market order ที่ราคาตลาด ณ ตอนนั้น
+- **Stop/TP** เช็คกับราคาล่าสุดทุกรอบ poll — ระหว่างรอบราคาอาจวิ่งผ่าน stop ได้ การออกจริงเป็น market order ที่ราคาตลาด ณ ตอนนั้น live ส่ง `open_=None` เสมอ ดังนั้นเหตุผลการออกจะเป็น `stop_loss`/`trailing_stop`/`take_profit` (ไม่ใช่ `stop_gap` ซึ่งใช้เฉพาะ backtest)
+- ถ้า restore แล้วพบเหรียญ base ในกระเป๋าโดยไม่มี position บันทึกอยู่ (ซื้อแล้ว fill แต่สถานะยังไม่เซฟ / crash) บอทจะ **halt การเปิดไม้ใหม่** และแจ้งเตือนให้ตรวจบัญชีก่อน `resume`
 
 ### การจัดการ error ในลูป (`Runner.tick`)
 
@@ -112,7 +113,8 @@ flowchart TD
     D -->|อ่าน balance ไม่ได้| H[Fill จากข้อมูลออเดอร์\nfilled/cost/fee]
 ```
 
-- จำนวนเหรียญที่ได้วัดจาก **ส่วนต่าง balance** จึงรองรับค่าธรรมเนียมที่หักเป็นเหรียญ base หรือ BNB
+- จำนวนเหรียญที่ได้วัดจาก **ส่วนต่าง balance** จึงรองรับค่าธรรมเนียมที่หักเป็นเหรียญ base หรือ BNB — `_settle` รอจนส่วนต่างตรงกับจำนวนที่ออเดอร์รายงานว่า fill แล้ว (**ไม่ใช่** เพียงยอดคงเหลือเปลี่ยนครั้งแรก จึงกัน partial fill/โอนเงินเข้าออกทำให้เข้าใจผิด)
+- ถ้าส่งออเดอร์แล้วไม่รู้ผล (`OrderStateUnknown`) engine จะเก็บ client order id ไว้ใน position และพยายามค้นหาด้วย `fill_from_order()` ก่อนส่งขายใหม่ หากออเดอร์ fill จริงจะบันทึก sell/PnL ให้ครบ แทนที่จะปล่อยให้ position ถูกทิ้งแบบ `missing`
 - ก่อนขาย: ถ้าในกระเป๋ามีเหรียญน้อยกว่าครึ่งของไม้ → `PositionMissingError`; ถ้ามูลค่าต่ำกว่าขั้นต่ำของตลาด → `DustError`
 - ขายเฉพาะจำนวนที่บอทซื้อเอง ไม่แตะเหรียญเดิมของผู้ใช้
 

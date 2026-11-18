@@ -41,7 +41,7 @@ def run_backtest(df: pd.DataFrame, strategy: Strategy, risk_cfg: RiskConfig, sym
     pending = HOLD
     for idx, bar in zip(df.index, df.itertuples(index=False), strict=True):
         ts = _ts(idx)
-        engine.on_signal(ts, pending, bar.open)
+        engine.on_signal(ts, pending, bar.open, mark_price=bar.close)
         engine.on_price(ts, bar.low, bar.high, open_=bar.open)
         pending = int(signals.loc[idx])
         equity.append(engine.equity(bar.close))

@@ -58,6 +58,7 @@ class Position:
     take: float | None
     peak: float
     opened_at: str
+    pending_order_id: str | None = None  # client id of a sell whose result is unconfirmed
 
 
 @dataclass

@@ -56,13 +56,29 @@ class Runner:
     # ---- startup ---------------------------------------------------------
     def restore(self) -> None:
         self.engine.load()  # also restores paper balances
-        if self.broker.live and self.engine.position:
-            base, _ = self.broker.balances()
+        if not self.broker.live:
+            return
+        base, _ = self.broker.balances()
+        if self.engine.position:
             if base < self.engine.position.qty * 0.5:
                 log.warning("stored position not found in wallet (sold manually?) - clearing it")
                 self.engine.notifier.send(f"[{self.mode}] position {self.cfg.symbol} missing from wallet; cleared")
                 self.engine.position = None
                 self.engine.save()
+        elif base > 0:
+            # A buy may have filled without being persisted (crash or unconfirmed
+            # order). Coins with no tracked stop are unacceptable: block new
+            # entries until a human reconciles the wallet.
+            try:
+                price = float(self.ex.fetch_ticker(self.cfg.symbol)["last"])
+                worth = base * price
+            except ccxt.NetworkError:
+                worth = 0.0  # cannot price it; be conservative and halt anyway
+            if worth >= self.broker.min_order_quote() or worth == 0.0:
+                log.error("untracked %s in wallet with no position - halting entries", self.cfg.symbol)
+                self.engine._halt(
+                    f"untracked {base:.8f} {self.cfg.symbol} in wallet (no position/stop); "
+                    f"check Binance, fix, then resume")
 
     # ---- loop ------------------------------------------------------------
     def step(self) -> None:
@@ -87,7 +103,8 @@ class Runner:
             new_bar = True
         else:
             new_bar = False
-        self.engine.on_price(now, price, price)
+        # live has a single last price: no bar open, so stops keep their real reason
+        self.engine.on_price(now, price, price, open_=None)
         self.engine.save()
         base, quote = self.broker.balances()
         equity = base * price + quote
