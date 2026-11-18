@@ -9,6 +9,7 @@ import run
 from bot.broker import LiveBroker, PaperBroker
 from bot.config import AppConfig, load_config
 from bot.engine import RESUME_KEY, Engine
+from bot.errors import ErrorCategory, classify_error
 from bot.notify import Notifier, NullNotifier
 from bot.risk import Position, RiskConfig, RiskManager
 from bot.runner import Runner
@@ -109,6 +110,66 @@ def test_sell_unknown_state_halts_then_recovers_pnl():
     assert e.position is None
     sell = e.store.trades()[-1]
     assert sell["side"] == "sell" and sell["pnl_quote"] is not None
+
+
+@pytest.mark.parametrize("exc,category", [
+    (ccxt.NetworkError("network down"), ErrorCategory.TRANSIENT),
+    (ccxt.RateLimitExceeded("rate limit"), ErrorCategory.RATE_LIMITED),
+    (ccxt.InsufficientFunds("not enough balance"), ErrorCategory.REJECTED),
+    (ccxt.AuthenticationError("bad key"), ErrorCategory.AUTH_FAILED),
+    (RuntimeError("something odd"), ErrorCategory.UNKNOWN),
+])
+def test_error_classification(exc, category):
+    assert classify_error(exc) is category
+
+
+def test_ambiguous_exchange_error_is_recovered_by_client_id():
+    ex = FakeExchange(synthetic(600))
+    ex.submit_error = ccxt.ExchangeError("broker returned something odd")
+    e = live_engine(ex)
+    e.on_signal("2025-01-01 00:00", BUY, ex.fetch_ticker("BTC/USDT")["last"])
+    assert e.position is not None, "an ambiguous outcome must be looked up, never blindly retried"
+    assert e.risk.state.halted_reason is None
+
+
+def test_ambiguous_exchange_error_halts_when_lookup_fails():
+    ex = FakeExchange(synthetic(600))
+    ex.submit_error = ccxt.ExchangeError("broker returned something odd")
+    ex.fail_lookup = True
+    e = live_engine(ex)
+    e.on_signal("2025-01-01 00:00", BUY, 100.0)
+    assert e.position is None and "unknown" in e.risk.state.halted_reason
+    assert e.store.get("risk")["halted_reason"]
+
+
+def test_known_rejection_is_not_treated_as_ambiguous():
+    ex = FakeExchange(synthetic(600))
+    ex.pre_submit_error = ccxt.InsufficientFunds("no balance")
+    e = live_engine(ex)
+    e.on_signal("2025-01-01 00:00", BUY, 100.0)
+    assert e.position is None and e.risk.state.halted_reason is None
+
+
+def test_rejected_order_does_not_escalate_backoff():
+    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)),
+               store=Store(), notifier=NullNotifier())
+
+    def reject():
+        raise ccxt.InsufficientFunds("no balance")
+
+    r.step = reject
+    assert r.tick(120) == r.cfg.poll_seconds == 30
+
+
+def test_rate_limit_honours_retry_after():
+    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)),
+               store=Store(), notifier=NullNotifier())
+
+    def limited():
+        raise ccxt.RateLimitExceeded("retry-after: 120")
+
+    r.step = limited
+    assert r.tick(30) == 120
 
 
 def test_cli_live_gate_refuses_without_keys(tmp_path, monkeypatch):

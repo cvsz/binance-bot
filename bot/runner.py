@@ -12,6 +12,7 @@ from .broker import LiveBroker, PaperBroker
 from .config import AppConfig, api_keys, check_live_allowed, db_path_for
 from .data import fetch_recent
 from .engine import Engine
+from .errors import FATAL_ERRORS, ErrorCategory, classify_error, retry_after
 from .notify import Notifier
 from .risk import RiskManager
 from .store import Store
@@ -20,8 +21,8 @@ from .strategies import build_strategy
 log = logging.getLogger(__name__)
 
 MAX_BACKOFF = 600
-# errors that retrying cannot fix: stop instead of hammering the API
-FATAL_ERRORS = (ccxt.AuthenticationError, ccxt.AccountSuspended, ccxt.BadSymbol)
+# FATAL_ERRORS is imported from bot.errors; auth-type errors stop the bot instead
+# of hammering the API (kept as a module attribute for existing callers/tests).
 
 
 def make_exchange(cfg: AppConfig, authenticated: bool):
@@ -152,10 +153,19 @@ class Runner:
             self.exit_code = 3
             self._stop = True
         except ccxt.NetworkError as exc:
-            log.warning("network error, retry in %ss: %s", min(backoff * 2, MAX_BACKOFF), exc)
+            delay = min(backoff * 2, MAX_BACKOFF)
+            if classify_error(exc) == ErrorCategory.RATE_LIMITED and (hint := retry_after(exc)):
+                delay = min(max(delay, hint), MAX_BACKOFF)
+            log.warning("network error, retry in %ss: %s", delay, exc)
+            return delay
         except ccxt.ExchangeError as exc:
-            log.error("exchange error: %s", exc)
+            category = classify_error(exc)
+            log.error("exchange error (%s): %s", category.value, exc)
             self.engine.notifier.send(f"[{self.engine.mode}] ⚠️ exchange error: {exc}")
+            # A rejected or malformed order will not fix itself on its own —
+            # keep polling at the normal cadence instead of escalating backoff.
+            if category in (ErrorCategory.INVALID_ORDER, ErrorCategory.REJECTED):
+                return self.cfg.poll_seconds
         except Exception as exc:  # keep managing stops even if something unexpected breaks
             log.exception("unexpected error in trading loop")
             self.engine.notifier.send(f"[{self.engine.mode}] ⚠️ unexpected error: {type(exc).__name__}: {exc}")

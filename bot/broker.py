@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 import ccxt
 
+from .errors import DEFINITE_REJECTIONS, FATAL_ERRORS
+
 log = logging.getLogger(__name__)
 
 
@@ -144,7 +146,17 @@ class LiveBroker:
         cid = self._client_id(side)
         try:
             return create({"newClientOrderId": cid})
-        except ccxt.NetworkError as exc:
+        except DEFINITE_REJECTIONS as exc:
+            # Authentication/symbol failures stay fatal. Other known rejections
+            # mean the order was definitely NOT placed, so translate them into a
+            # plain BrokerError (log and retry on the next signal, no halt).
+            if isinstance(exc, FATAL_ERRORS):
+                raise
+            raise BrokerError(f"{side} order rejected: {exc}") from exc
+        except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
+            # Any other failure leaves the outcome unknown — including exchange
+            # errors that are not obviously rejections. Never retry blindly:
+            # look the order up by client id, then fail closed.
             log.warning("%s order %s submission failed (%s); looking it up", side, cid, exc)
             for attempt in range(self.lookup_attempts):
                 time.sleep(self.lookup_delay * (attempt + 1))

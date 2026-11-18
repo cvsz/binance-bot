@@ -32,6 +32,8 @@
 - Permission: `.env` 755 → 600, โฟลเดอร์ 777 → 755; `.gitignore` ไม่ครอบคลุม `.venv/` และ `*.db`
 
 ### Security
+- **Fail-closed ผลลัพธ์ออเดอร์** (port pattern จาก zksato, MIT): error ที่ไม่ใช่ rejection แน่นอน → ค้นหาด้วย client order id; ถ้ายังไม่แน่ใจ halt แทนการ retry แบบบอด
+- `bot/errors.py`: แยกประเภท error (transient/rate_limited/auth/rejected/unknown) พร้อม retry policy — rate limit เคารพ `retry-after`, rejection ไม่เพิ่ม backoff
 - Dashboard ไม่ log query string (กัน `DASHBOARD_TOKEN` รั่วผ่าน log บอท); Docker dashboard ได้เฉพาะ `DASHBOARD_TOKEN`
 - Config ปฏิเสธ key ที่สะกดผิดทุก section, parse boolean แบบเข้มงวด, ปฏิเสธ `..` ใน `db_path`, และรายงาน type ผิดเป็น `config error` (exit 2)
 - `check_secrets.py` ตรวจ git history ด้วย; `check_docs.py` เข้าใจ anchor ที่ซ้ำกัน; `Makefile` ส่งค่า path ผ่าน argv/env แทนการฝังในโค้ด Python; Telegram dedup จำกัดจำนวนข้อความที่ track

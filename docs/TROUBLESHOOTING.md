@@ -23,7 +23,9 @@
 
 | อาการ / ข้อความ | สาเหตุ | วิธีแก้ |
 |---|---|---|
-| `network error, retry in Ns` | เน็ต/Binance ช้าหรือโดน rate limit | ปกติ บอท backoff เอง (สูงสุด 10 นาที) ถ้าเกิดตลอดให้เพิ่ม `poll_seconds` |
+| `network error, retry in Ns` | เน็ต/Binance ช้า | ปกติ บอท backoff เอง (สูงสุด 10 นาที) ถ้าเกิดตลอดให้เพิ่ม `poll_seconds` |
+| `network error, retry in Ns` พร้อม `rate_limited` | โดน rate limit | บอทอ่าน `retry-after` จาก exchange ถ้ามี; ถ้าเจอบ่อยให้เพิ่ม `poll_seconds` หรือลดจำนวนคู่เทรด |
+| `exchange error (rejected): …` | exchange ปฏิเสธคำสั่ง (เช่น insufficient funds) | แก้เงิน/พารามิเตอร์; บอทไม่เพิ่ม backoff แต่ยังเช็ค stop ตามปกติ |
 | `Timestamp for this request was 1000ms ahead` / `-1021` | นาฬิกาเครื่องเพี้ยน (พบบ่อยใน WSL หลัง sleep) | บอทเปิด `adjustForTimeDifference` แล้ว; ถ้ายังเกิด: `sudo hwclock -s` หรือ `wsl --shutdown` แล้วเปิดใหม่ |
 | `⛔ STOPPED - fatal error: … Invalid API-key, IP, or permissions` (exit 3) | key ผิด, ไม่ได้เปิด Spot Trading, IP ไม่อยู่ใน whitelist | แก้ที่ Binance API Management/`.env` แล้วเริ่มใหม่ |
 | `entry skipped: size X below minimum order` | พอร์ตเล็กเกินไปสำหรับขั้นต่ำ 5 USDT ตาม sizing | เพิ่มเงิน หรือเพิ่ม `risk_per_trade_pct`/`max_position_pct` อย่างระวัง |

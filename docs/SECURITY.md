@@ -58,6 +58,20 @@ Testnet key (https://testnet.binance.vision) แยกจาก key จริง
 - Docker เผยพอร์ตเฉพาะ `127.0.0.1:8080`
 - `/healthz` ไม่ต้องใช้ token (ไม่มีข้อมูลภายใน)
 
+<a id="fail-closed-order-outcomes"></a>
+## ผลลัพธ์ออเดอร์ที่ไม่แน่นอน (fail-closed)
+
+port pattern จากโปรเจกต์ [zksato](https://github.com/cvsz/zksato) (MIT, owner เดียวกัน): ทุกครั้งที่ส่งออเดอร์แล้วได้ error ที่ **ไม่ใช่ rejection ที่แน่นอน** (auth/symbol/insufficient funds/invalid order) บอทจะถือว่าผลไม่แน่นอนเสมอ — error แบบ exchange ขัดข้องหรือไม่รู้จักก็รวมอยู่ด้วย
+
+ลำดับการจัดการ (`bot/broker.py::_submit`):
+
+1. ส่งออเดอร์พร้อม `clientOrderId`
+2. ถ้า error ที่ทราบแน่ว่าไม่ได้ส่ง (auth/symbol/invalid/insufficient) → ไม่ halt หรือ lookup (เป็น BrokerError หรือ fatal ตามประเภท)
+3. ถ้า error อื่น → ค้นหาออเดอร์ด้วย `clientOrderId` สูงสุด 3 ครั้ง
+4. พบออเดอร์ → ใช้ข้อมูลจริงจาก exchange; ไม่พบและยืนยันได้ว่าส่งไม่สำเร็จ → `BrokerError` (ไม่ทำอะไรต่อ); ยังไม่แน่ใจ → `OrderStateUnknown` → **halt การเปิดไม้ใหม่** + แจ้งเตือน
+
+กฎนี้กันไม่ให้บอทส่งคำสั่งซ้ำแบบบอดหลังเน็ตหลุดหรือ exchange ตอบ error แปลกๆ (duplicate order / ไม้ไร้ stop)
+
 ## Supply chain
 
 - `make secrets-check` ตรวจทั้งไฟล์ปัจจุบัน **และ git history** (key ที่เคย commit แล้วลบไปก็ยัง fail) — ยังควรใช้ secret scanner เฉพาะทางควบคู่กัน ไม่ใช่หลักฐานว่าหมดความเสี่ยง

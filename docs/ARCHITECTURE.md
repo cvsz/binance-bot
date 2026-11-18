@@ -93,9 +93,13 @@ sequenceDiagram
 | Error | การตอบสนอง |
 |---|---|
 | `ccxt.AuthenticationError`, `AccountSuspended`, `BadSymbol` | แจ้งเตือน, **หยุดบอท**, exit code 3 (retry ไม่ช่วย) |
-| `ccxt.NetworkError` (timeout, rate limit, exchange ล่ม) | retry แบบ backoff ×2 สูงสุด 600 วินาที |
-| `ccxt.ExchangeError` อื่นๆ | แจ้งเตือน + backoff |
+| `ccxt.NetworkError` (timeout, exchange ล่ม) → `transient` | retry แบบ backoff ×2 สูงสุด 600 วินาที |
+| `RateLimitExceeded` / `DDoSProtection` → `rate_limited` | backoff อย่างน้อยตาม `retry-after` ที่ exchange ส่งมา ( capped 600 ) |
+| `InsufficientFunds` / `InvalidOrder` → `rejected` | แจ้งเตือน แต่ **ไม่เพิ่ม backoff** (สั่งผิดจะไม่หายเองกลางลูป) |
+| `ccxt.ExchangeError` อื่นๆ → `unknown` | แจ้งเตือน + backoff |
 | Exception อื่นๆ ที่ไม่คาดคิด | log traceback, แจ้งเตือน, backoff — **ลูปไม่ตาย** เพื่อให้ stop ของไม้ที่เปิดอยู่ยังทำงาน |
+
+การแยกประเภทอยู่ใน `bot/errors.py` (port pattern จาก zksato ภายใต้ MIT) — ดู [SECURITY.md](SECURITY.md#fail-closed-order-outcomes)
 
 SIGINT/SIGTERM → ตั้ง flag หยุด, บันทึกสถานะ, ส่งข้อความ "bot stopped" แล้วออก
 
@@ -122,7 +126,7 @@ flowchart TD
 
 | Exception | ความหมาย | Engine ทำอะไร |
 |---|---|---|
-| `BrokerError` | คำสั่งไม่ได้ทำงาน บัญชีไม่เปลี่ยน | log/แจ้งเตือน, ลองใหม่รอบหน้า (ตอนขาย) |
+| `BrokerError` | คำสั่งไม่ได้ทำงาน บัญชีไม่เปลี่ยน (รวม rejection ที่ exchange ปฏิเสธชัดเจน) | log/แจ้งเตือน, ลองใหม่รอบหน้า (ตอนขาย) |
 | `DustError` | ไม้เล็กกว่าขั้นต่ำ ขายไม่ได้ | เลิกติดตามไม้ (`abandon`/`dust`), เหรียญค้างในกระเป๋า |
 | `PositionMissingError` | ไม่มีเหรียญของไม้ในกระเป๋าแล้ว | เลิกติดตามไม้ (`abandon`/`missing`) |
 | `OrderStateUnknown` | ไม่รู้ว่าออเดอร์ทำงานหรือไม่ | **halt** การเปิดไม้ใหม่ ต้อง `resume` เอง |

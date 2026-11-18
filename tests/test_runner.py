@@ -24,6 +24,8 @@ class FakeExchange:
         self.fail_submit_before_fill = False  # simulate timeout BEFORE the order reached the exchange
         self.fail_lookup = False
         self.fail_balance_after_order = False
+        self.submit_error: Exception | None = None      # raised AFTER the exchange accepted the order
+        self.pre_submit_error: Exception | None = None  # raised BEFORE the order reached the exchange
         self._balance_broken = False
 
     def parse_timeframe(self, tf):
@@ -61,6 +63,8 @@ class FakeExchange:
     def _place(self, side, params, fill):
         if self.fail_submit_before_fill:
             raise ccxt.RequestTimeout("timeout before send")
+        if self.pre_submit_error:
+            raise self.pre_submit_error
         order = fill()
         order["clientOrderId"] = params.get("newClientOrderId")
         self.orders[order["clientOrderId"]] = order
@@ -68,6 +72,8 @@ class FakeExchange:
             self._balance_broken = True
         if self.fail_submit_after_fill:
             raise ccxt.RequestTimeout("timeout after send")
+        if self.submit_error:
+            raise self.submit_error
         return order
 
     def create_market_buy_order_with_cost(self, s, cost, params=None):
