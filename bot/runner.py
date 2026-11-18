@@ -18,6 +18,7 @@ from .notify import Notifier
 from .risk import RiskManager
 from .store import Store
 from .strategies import build_strategy
+from .venues import get_venue
 
 log = logging.getLogger(__name__)
 
@@ -27,12 +28,16 @@ MAX_BACKOFF = 600
 
 
 def make_exchange(cfg: AppConfig, authenticated: bool):
+    venue = get_venue(cfg.exchange_name)
+    exchange_class = getattr(ccxt, venue.ccxt_id, None)
+    if exchange_class is None:
+        raise ValueError(f"ccxt has no exchange class {venue.ccxt_id!r} for venue {venue.id!r}")
     params = {"enableRateLimit": True, "options": {"defaultType": "spot", "adjustForTimeDifference": True}}
     if authenticated:
-        key, secret = api_keys(cfg.testnet)
+        key, secret = api_keys(cfg.testnet, cfg.exchange_name)
         params.update(apiKey=key, secret=secret)
-    ex = ccxt.binance(params)
-    if authenticated and cfg.testnet:
+    ex = exchange_class(params)
+    if authenticated and cfg.testnet and venue.supports_testnet:
         ex.set_sandbox_mode(True)
     return ex
 

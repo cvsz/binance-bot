@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from .risk import RiskConfig
+from .venues import DEFAULT_VENUE, get_venue
 
 TIMEFRAME_RE = re.compile(r"^\d+[smhdwM]$")
 SYMBOL_RE = re.compile(r"^[A-Z0-9]+/[A-Z0-9]+$")
@@ -18,7 +19,7 @@ SYMBOL_RE = re.compile(r"^[A-Z0-9]+/[A-Z0-9]+$")
 # because each strategy validates its own parameter names.
 TOP_KEYS = {"symbol", "timeframe", "exchange", "strategy", "risk", "paper", "loop", "db_path"}
 SECTION_KEYS = {
-    "exchange": {"testnet"},
+    "exchange": {"name", "testnet"},
     "strategy": {"name", "params"},
     "paper": {"starting_quote", "fee_pct", "slippage_pct"},
     "loop": {"poll_seconds"},
@@ -30,6 +31,7 @@ SECTION_KEYS = {
 class AppConfig:
     symbol: str = "BTC/USDT"
     timeframe: str = "15m"
+    exchange_name: str = DEFAULT_VENUE
     testnet: bool = True
     strategy: str = "ema_cross"
     strategy_params: dict = field(default_factory=dict)
@@ -41,6 +43,7 @@ class AppConfig:
     db_path: str = "data/bot.db"
 
     def __post_init__(self):
+        get_venue(self.exchange_name)  # rejects unsupported venues with an actionable message
         if not SYMBOL_RE.match(self.symbol):
             raise ValueError(f"symbol must look like BASE/QUOTE (e.g. BTC/USDT), got {self.symbol!r}")
         if not TIMEFRAME_RE.match(self.timeframe):
@@ -93,6 +96,7 @@ def load_config(path: str | Path) -> AppConfig:
     return AppConfig(
         symbol=str(raw.get("symbol", "BTC/USDT")).upper(),
         timeframe=str(raw.get("timeframe", "15m")),
+        exchange_name=str(ex.get("name", DEFAULT_VENUE)).lower(),
         testnet=_bool(ex, "testnet", True),
         strategy=strat.get("name", "ema_cross"),
         strategy_params=strat.get("params") or {},
@@ -113,11 +117,13 @@ def db_path_for(cfg: AppConfig, mode: str) -> Path:
     if mode == "live" and cfg.testnet:
         mode = "live-testnet"
     p = Path(cfg.db_path)
-    return p.with_name(p.stem + DB_MODES[mode] + p.suffix)
+    venue_part = "" if cfg.exchange_name == DEFAULT_VENUE else f".{cfg.exchange_name}"
+    return p.with_name(p.stem + DB_MODES[mode] + venue_part + p.suffix)
 
 
-def api_keys(testnet: bool) -> tuple[str | None, str | None]:
-    prefix = "BINANCE_TESTNET_" if testnet else "BINANCE_"
+def api_keys(testnet: bool, venue: str = DEFAULT_VENUE) -> tuple[str | None, str | None]:
+    prefix = get_venue(venue).key_prefix
+    prefix = f"{prefix}_TESTNET_" if testnet else f"{prefix}_"
     return os.getenv(prefix + "API_KEY"), os.getenv(prefix + "API_SECRET")
 
 
@@ -127,9 +133,10 @@ REAL_MONEY_VALUE = "YES_I_ACCEPT_THE_RISK"
 
 def check_live_allowed(cfg: AppConfig, real_money_flag: bool) -> None:
     """Raise unless every safety gate for live trading is satisfied."""
-    key, secret = api_keys(cfg.testnet)
+    key, secret = api_keys(cfg.testnet, cfg.exchange_name)
+    prefix = get_venue(cfg.exchange_name).key_prefix
     if not key or not secret:
-        which = "BINANCE_TESTNET_API_KEY/SECRET" if cfg.testnet else "BINANCE_API_KEY/SECRET"
+        which = f"{prefix}_TESTNET_API_KEY/SECRET" if cfg.testnet else f"{prefix}_API_KEY/SECRET"
         raise PermissionError(f"live mode needs {which} in the environment or .env")
     if cfg.testnet:
         return

@@ -14,6 +14,7 @@
 | **live (testnet)** | Binance Testnet | เงินปลอมของ testnet | `python run.py live` |
 | **live (เงินจริง)** | Binance | **เงินจริง** | `python run.py live --real-money` + ยืนยันใน `.env` |
 
+- **Venue**: `binance` (ค่าเริ่มต้น) หรือ `binanceus` ตั้งใน `exchange.name` — key/DB แยกตาม venue อัตโนมัติ (Binance TH ยังไม่รองรับ: ccxt ไม่มีคลาสและใช้ API คนละ version)
 - **กลยุทธ์**: `ema_cross` (ตามเทรนด์ EMA ตัดกัน + กรอง RSI) และ `rsi_reversion` (ซื้อตอน RSI ฟื้นจาก oversold ในขาขึ้น) — เพิ่มเองได้ใน `bot/strategies.py`
 - **บริหารความเสี่ยง**: คำนวณขนาดไม้จาก % ความเสี่ยงต่อไม้, stop-loss บังคับ, take-profit, trailing stop, จำกัดเงินต่อไม้, หยุดเปิดไม้เมื่อขาดทุนรายวันเกินกำหนด, จำกัดจำนวนไม้ต่อวัน, cooldown, และ kill switch เมื่อพอร์ตลดจากจุดสูงสุดเกิน `max_drawdown_halt_pct` (ไม่บังคับ)
 - **ไม่มี lookahead**: สัญญาณใช้เฉพาะแท่งเทียนที่ปิดแล้ว, backtest ส่งคำสั่งที่ราคาเปิดของแท่งถัดไป (เหมือนของจริง) และคิดค่าธรรมเนียม + slippage

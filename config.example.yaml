@@ -3,7 +3,10 @@ symbol: BTC/USDT          # คู่เทรด (spot เท่านั้น
 timeframe: 15m            # 1m 5m 15m 1h 4h 1d
 
 exchange:
-  testnet: true           # true = Binance Spot Testnet (เงินปลอม) | false = เงินจริง
+  name: binance           # binance (Binance global) | binanceus (Binance.US)
+                          # binanceth ยังไม่รองรับ: ccxt ไม่มีคลาสและ TH ใช้ /api/v1 (ccxt/ccxt#26585)
+  testnet: true           # true = Spot Testnet (เงินปลอม) | false = เงินจริง
+                          # เปลี่ยน venue แล้วต้องใช้ key prefix ใหม่: BINANCEUS_API_KEY/SECRET
 
 strategy:
   name: ema_cross         # ema_cross | rsi_reversion

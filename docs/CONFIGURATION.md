@@ -19,13 +19,14 @@
 |---|---|---|---|
 | `symbol` | `BTC/USDT` | รูปแบบ `BASE/QUOTE` ตัวพิมพ์ใหญ่ (แปลงให้อัตโนมัติ) | คู่เทรด spot |
 | `timeframe` | `15m` | ตัวเลข + `s m h d w M` เช่น `1m 5m 15m 1h 4h 1d` | ขนาดแท่งเทียน |
-| `db_path` | `data/bot.db` | ห้ามมี `..` | ฐานของชื่อไฟล์ DB (เติม `.paper` / `.live.testnet` / `.live` ให้อัตโนมัติ) |
+| `db_path` | `data/bot.db` | ห้ามมี `..` | ฐานของชื่อไฟล์ DB (เติม `.paper` / `.live.testnet` / `.live` และ suffix venue เช่น `.binanceus` ให้อัตโนมัติ) |
 
 ### `exchange`
 
 | Key | ค่าเริ่มต้น | ความหมาย |
 |---|---|---|
-| `testnet` | `true` | เฉพาะ `true` / `false` (หรือ YAML boolean) — `bool("false")` ไม่ถูกแปลงเป็น false · `true` = Binance Spot Testnet (เงินปลอม) · `false` = เงินจริง (ต้องผ่านประตูความปลอดภัยเพิ่ม ดู [SECURITY.md](SECURITY.md#real-money-gates)) |
+| `name` | `binance` | `binance` (Binance global) หรือ `binanceus` (Binance.US) — เปลี่ยน venue ต้องใช้ key prefix ใหม่ และ DB ได้ suffix ใหม่อัตโนมัติ · `binanceth` **ยังไม่รองรับ** (ccxt ไม่มีคลาส + TH ใช้ `/api/v1`, [ccxt#26585](https://github.com/ccxt/ccxt/issues/26585)) → โหลด config จะ error พร้อมเหตุผล |
+| `testnet` | `true` | เฉพาะ `true` / `false` (หรือ YAML boolean) — `bool("false")` ไม่ถูกแปลงเป็น false · `true` = Spot Testnet (เงินปลอม) · `false` = เงินจริง (ต้องผ่านประตูความปลอดภัยเพิ่ม ดู [SECURITY.md](SECURITY.md#real-money-gates)) |
 
 ### `strategy`
 
@@ -97,8 +98,9 @@ db_path: data/eth.db
 
 | ตัวแปร | ใช้เมื่อ | หมายเหตุ |
 |---|---|---|
-| `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET` | `live` + `testnet: true` | สร้างที่ https://testnet.binance.vision |
-| `BINANCE_API_KEY` / `BINANCE_API_SECRET` | `live` + `testnet: false` | เปิดเฉพาะ Spot Trading, ปิด Withdrawals, ผูก IP whitelist |
+| `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET` | `live` + `testnet: true` + `name: binance` | สร้างที่ https://testnet.binance.vision |
+| `BINANCE_API_KEY` / `BINANCE_API_SECRET` | `live` + `testnet: false` + `name: binance` | เปิดเฉพาะ Spot Trading, ปิด Withdrawals, ผูก IP whitelist |
+| `BINANCEUS_TESTNET_*` / `BINANCEUS_*` | ใช้กับ `name: binanceus` | prefix เปลี่ยนตาม venue (ดู `bot/venues.py`); หลักการเดียวกัน |
 | `BOT_CONFIRM_REAL_MONEY` | เงินจริง | ต้องเป็น `YES_I_ACCEPT_THE_RISK` ทุกตัวอักษร |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | ไม่บังคับ | เปิดการแจ้งเตือน (ต้องมีทั้งคู่) |
 | `DASHBOARD_TOKEN` | dashboard ที่ bind นอก localhost | ใช้ค่าสุ่มยาว เช่น `python -c "import secrets;print(secrets.token_urlsafe(32))"` |

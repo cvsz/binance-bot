@@ -22,6 +22,8 @@
 
 Testnet key (https://testnet.binance.vision) แยกจาก key จริงโดยสิ้นเชิง
 
+ถ้าเปลี่ยน `exchange.name` เป็น `binanceus` ให้ใช้ prefix `BINANCEUS_*` แทน — ประตูความปลอดภัยเหมือนเดิมทุกประการ (ตรวจตาม venue ที่เลือก ไม่ใช่ key ของ venue อื่น) และ DB แยก suffix ให้โดยอัตโนมัติ
+
 <a id="real-money-gates"></a>
 ## ประตูก่อนใช้เงินจริง
 

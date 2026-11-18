@@ -8,14 +8,15 @@ import pytest
 
 import run
 from bot.broker import LiveBroker, PaperBroker
-from bot.config import AppConfig, load_config
+from bot.config import AppConfig, api_keys, check_live_allowed, db_path_for, load_config
 from bot.engine import RESUME_KEY, Engine
 from bot.errors import ErrorCategory, classify_error
 from bot.notify import Notifier, NullNotifier
 from bot.risk import Position, RiskConfig, RiskManager
-from bot.runner import Runner
+from bot.runner import Runner, make_exchange
 from bot.store import Store
 from bot.strategies import BUY
+from bot.venues import get_venue
 from tests.test_bot import make_engine, synthetic
 from tests.test_hardening import RecordingNotifier, live_engine, write_cfg
 from tests.test_runner import FakeExchange, fast_broker
@@ -314,6 +315,50 @@ def test_untracked_wallet_balance_halts_entries():
     assert r.engine.position is None
     assert "untracked" in r.engine.risk.state.halted_reason
     assert any("HALTED" in m for m in r.engine.notifier.msgs)
+
+
+def test_venue_registry():
+    assert get_venue("binance").key_prefix == "BINANCE"
+    assert get_venue("BINANCEUS").ccxt_id == "binanceus"
+    with pytest.raises(ValueError, match="not supported"):
+        get_venue("binanceth")
+    with pytest.raises(ValueError, match="unknown exchange"):
+        get_venue("somethingelse")
+
+
+def test_config_selects_exchange_and_rejects_unsupported(tmp_path):
+    cfg = load_config(write_cfg(tmp_path, body="exchange:\n  name: binanceus\n  testnet: true\n"))
+    assert cfg.exchange_name == "binanceus"
+    with pytest.raises(ValueError, match="not supported"):
+        load_config(write_cfg(tmp_path, body="exchange:\n  name: binanceth\n"))
+
+
+def test_api_keys_use_venue_prefix(monkeypatch):
+    monkeypatch.setenv("BINANCEUS_API_KEY", "us-key")
+    monkeypatch.setenv("BINANCEUS_API_SECRET", "us-secret")
+    assert api_keys(False, "binanceus") == ("us-key", "us-secret")
+    monkeypatch.setenv("BINANCEUS_TESTNET_API_KEY", "us-test-key")
+    monkeypatch.setenv("BINANCEUS_TESTNET_API_SECRET", "us-test-secret")
+    assert api_keys(True, "binanceus") == ("us-test-key", "us-test-secret")
+
+
+def test_db_path_includes_venue_when_not_default():
+    cfg = AppConfig(exchange_name="binanceus", db_path="data/bot.db")
+    assert str(db_path_for(cfg, "paper")).endswith("bot.paper.binanceus.db")
+    assert str(db_path_for(cfg, "live")).endswith("bot.live.testnet.binanceus.db")
+
+
+def test_make_exchange_uses_venue_class():
+    ex = make_exchange(AppConfig(exchange_name="binanceus"), authenticated=False)
+    assert ex.id == "binanceus"
+
+
+def test_live_gate_uses_venue_keys(monkeypatch):
+    for k in ("BINANCE_TESTNET_API_KEY", "BINANCE_TESTNET_API_SECRET"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("BINANCEUS_TESTNET_API_KEY", "us-key")
+    monkeypatch.setenv("BINANCEUS_TESTNET_API_SECRET", "us-secret")
+    check_live_allowed(AppConfig(exchange_name="binanceus", testnet=True), False)
 
 
 def test_example_config_loads_with_all_risk_keys():

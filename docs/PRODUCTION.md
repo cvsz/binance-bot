@@ -25,6 +25,7 @@
 - [ ] Paper ≥ 1–2 สัปดาห์ และ testnet ≥ 1 สัปดาห์ ไม่มี `WARNING`/`ERROR` ที่อธิบายไม่ได้ (`make errors`)
 - [ ] ประตูเงินจริงครบ 4 ชั้น: `testnet: false` + key จริง + `--real-money` + `BOT_CONFIRM_REAL_MONEY=YES_I_ACCEPT_THE_RISK`
 - [ ] ใช้ **sub-account** ที่โอนเข้าเฉพาะเงินที่เสียได้, key ปิด Withdrawals/Futures, ผูก IP whitelist
+- [ ] ถ้าใช้ `exchange.name` ไม่ใช่ `binance`: ตรวจว่า key prefix ตรง venue (`BINANCEUS_*`) และ DB suffix ใหม่ถูกต้อง (`make info`)
 - [ ] ตั้ง `max_drawdown_halt_pct` และเปิด Telegram (token/chat id ใน `.env`)
 - [ ] `.env` เป็น `chmod 600` (`make perms`), `config.yaml` 644, โฟลเดอร์ 755
 - [ ] ตั้ง `DASHBOARD_TOKEN` แบบสุ่มยาวถ้าเปิด dashboard นอก localhost; ใช้ SSH/Cloudflare tunnel เสมอ (ไม่มี HTTPS ในตัว)

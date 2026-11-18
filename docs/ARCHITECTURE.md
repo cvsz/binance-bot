@@ -30,6 +30,8 @@ flowchart LR
 
 หลักการสำคัญ: **โค้ดตัดสินใจเทรดชุดเดียว (`Engine`) ใช้ร่วมกันทุกโหมด** — backtest, paper และ live ต่างกันแค่แหล่งราคา (`data`/backtester) และผู้ส่งคำสั่ง (`PaperBroker`/`LiveBroker`) ผล backtest จึงสะท้อนตรรกะเดียวกับของจริง
 
+Venue (`bot/venues.py`) จับคู่ `exchange.name` กับ ccxt class และ prefix ของ API key (`BINANCE_*` / `BINANCEUS_*`) — `Runner.make_exchange()` และ `check_live_allowed()` ใช้ venue เดียวกันเสมอ ส่วน DB ได้ suffix venue เพื่อไม่ให้สอง venue ใช้ไฟล์เดียวกัน (ดู [CONFIGURATION.md](CONFIGURATION.md))
+
 ## โมดูล
 
 | ไฟล์ | หน้าที่ | ขึ้นกับ |
