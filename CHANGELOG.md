@@ -5,6 +5,7 @@
 ## [Unreleased] — branch `audit/hardening`
 
 ### Added
+- รองรับ API key แบบ Self-generated (Ed25519/RSA): ใส่ PEM private key ใน `*_API_SECRET` ได้เลย (ccxt ตรวจจับอัตโนมัติ) พร้อมคำแนะนำใน `docs/SECURITY.md` และตัวอย่าง `.env.example`
 - Venue abstraction (`bot/venues.py`): รองรับ `binance` และ `binanceus` แยก key prefix/DB suffix; `binanceth` ถูกปฏิเสธพร้อมเหตุผล (ccxt ไม่มีคลาส, TH ใช้ `/api/v1`)
 - เอกสารครบชุดใน `docs/` (สถาปัตยกรรม, การตั้งค่า, ความเสี่ยง, กลยุทธ์, runbook, **ความพร้อม production**, ความปลอดภัย, อ้างอิงคำสั่ง, การพัฒนา, แก้ปัญหา) และ `AGENTS.md`
 - `Makefile`: setup, quality gates (`check`, `ci`), trading, รันเบื้องหลังด้วย tmux, backup/restore, Docker, ตรวจเอกสาร/ความลับ

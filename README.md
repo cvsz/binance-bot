@@ -128,6 +128,7 @@ docker compose logs -f
 - จำกัดขาดทุนรายวันนับตามวัน **UTC** (07:00 เวลาไทย)
 - ในโหมด live ขนาดไม้/ขาดทุนรายวัน/drawdown คำนวณจาก **ยอดทั้งบัญชี** (base + quote) ถ้ามีเหรียญเดิมอยู่ ราคาเหรียญเดิมจะมีผลด้วย — แนะนำใช้ sub-account แยกสำหรับบอท
 - config เข้มงวด: ชื่อ key ที่สะกดผิดทุก section ถูกปฏิเสธ, `testnet` ต้องเป็น `true`/`false` (ไม่แปลง `"false"` เป็น false), `db_path` ห้ามมี `..`
+- API key ได้ทั้งแบบ **System generated (HMAC)** และ **Self-generated (Ed25519/RSA)** — ใส่ PEM private key ลงใน `*_API_SECRET` ได้เลย ccxt เลือกวิธีเซ็นให้ (สร้างด้วย [Binance Asymmetric Key Generator](https://github.com/binance/asymmetric-key-generator/releases) แบบไม่ใส่ passphrase) ดู [SECURITY.md](docs/SECURITY.md#api-key-types)
 - `.env` ควรเป็น `chmod 600` (อ่านได้เฉพาะเจ้าของ)
 - ใช้ Binance global (binance.com) — **Binance TH** เป็นคนละระบบ/API ใช้กับบอทนี้ไม่ได้โดยตรง
 - กำหนดค่าธรรมเนียม/slippage ใน `paper` ให้ใกล้ของจริง (Binance spot ปกติ 0.1%)

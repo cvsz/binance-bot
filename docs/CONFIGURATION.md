@@ -105,6 +105,8 @@ db_path: data/eth.db
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | ไม่บังคับ | เปิดการแจ้งเตือน (ต้องมีทั้งคู่) |
 | `DASHBOARD_TOKEN` | dashboard ที่ bind นอก localhost | ใช้ค่าสุ่มยาว เช่น `python -c "import secrets;print(secrets.token_urlsafe(32))"` |
 
+`*_API_SECRET` รับได้ทั้ง secret แบบ HMAC (System generated) และ **PEM private key แบบ Self-generated (Ed25519/RSA)** — ccxt เลือกวิธีเซ็นให้เองจากเนื้อหา (ดู [SECURITY.md](SECURITY.md#api-key-types)); ถ้าเป็น PEM ต้องเขียนเป็น quoted multiline ใน `.env` และ **ห้ามเข้ารหัสด้วย passphrase**
+
 ตัวแปรใน environment จริงมีผลเหนือกว่าค่าใน `.env` (พฤติกรรมของ `python-dotenv`)
 
 ## ตรวจ config

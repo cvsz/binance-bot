@@ -5,6 +5,7 @@ from pathlib import Path
 
 import ccxt
 import pytest
+from dotenv import dotenv_values
 
 import run
 from bot.broker import LiveBroker, PaperBroker
@@ -315,6 +316,41 @@ def test_untracked_wallet_balance_halts_entries():
     assert r.engine.position is None
     assert "untracked" in r.engine.risk.state.halted_reason
     assert any("HALTED" in m for m in r.engine.notifier.msgs)
+
+
+FAKE_ED25519_PEM = (
+    "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIFakeFake\n-----END PRIVATE KEY-----"
+)
+
+
+def test_ccxt_signing_uses_eddsa_for_pem_secret():
+    ex = ccxt.binance({"apiKey": "k", "secret": FAKE_ED25519_PEM})
+    ex.eddsa = lambda *a, **k: b"sig-ed"
+    ex.hmac = lambda *a, **k: pytest.fail("HMAC must not be used when secret is a PEM key")
+
+    signed = ex.sign("order", ["private"], "POST", {"timestamp": 1})
+    assert "signature=sig-ed" in signed["body"]
+
+
+def test_ccxt_signing_uses_hmac_for_plain_secret():
+    ex = ccxt.binance({"apiKey": "k", "secret": "plain-secret"})
+    ex.hmac = lambda *a, **k: "sig-hmac"  # ccxt concatenates the HMAC result as str
+    ex.eddsa = lambda *a, **k: pytest.fail("EdDSA must not be used for a normal HMAC secret")
+
+    signed = ex.sign("order", ["private"], "POST", {"timestamp": 1})
+    assert "signature=sig-hmac" in signed["body"]
+
+
+def test_dotenv_reads_multiline_pem(tmp_path):
+    env = tmp_path / "env.test"
+    env.write_text(
+        'BINANCE_API_KEY=k\n'
+        'BINANCE_API_SECRET="-----BEGIN PRIVATE KEY-----\n'
+        'ABC\n'
+        '-----END PRIVATE KEY-----"\n'
+    )
+    value = dotenv_values(env)["BINANCE_API_SECRET"]
+    assert "PRIVATE KEY" in value and value.count("\n") == 2
 
 
 def test_venue_registry():

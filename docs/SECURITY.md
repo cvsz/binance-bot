@@ -36,6 +36,31 @@ Testnet key (https://testnet.binance.vision) แยกจาก key จริง
 
 ตรวจทั้งใน `run.py` (ก่อนสร้าง Runner) และใน `Runner.run()` อีกชั้น — ขาดข้อใดบอทไม่เริ่ม (exit code 2) ส่วน `make start` (tmux) ไม่รองรับเงินจริงโดยตั้งใจ
 
+<a id="api-key-types"></a>
+## ประเภท API key: System generated vs Self-generated
+
+Binance มี 2 แบบ และ **บอทนี้รองรับทั้งคู่โดยไม่ต้องแก้โค้ด** (ccxt ตรวจจับจากเนื้อหาของ `secret`):
+
+| แบบ | สิ่งที่ใส่ใน `.env` | ccxt ใช้ |
+|---|---|---|
+| **System generated** (HMAC) | `BINANCE_API_KEY` + `BINANCE_API_SECRET` (secret ที่ Binance ออกให้) | `hmac(..., sha256)` |
+| **Self-generated** (Ed25519 / RSA) | `BINANCE_API_KEY` + `BINANCE_API_SECRET` = **PEM private key** | ถ้า `secret` มีคำว่า `PRIVATE KEY`: ยาว > 120 ตัว = RSA, สั้นกว่า = Ed25519 (`ccxt/binance.py:12576-12582`) |
+
+### ควรเลือกแบบไหน
+
+- **Self-generated Ed25519 แนะนำถ้าตั้งใหม่** — private key ถูกสร้างบนเครื่องคุณและ **ไม่ถูกส่งไปเก็บที่ Binance** (Binance ได้แค่ public key) ลดความเสียหายถ้า Binance ฝั่ง server รั่ว
+- **System generated HMAC ใช้ได้เลย** และเป็น path ที่บอทเทสต์ครบ — ปลอดภัยพอถ้าปิด withdrawal + IP whitelist + ใช้ sub-account
+
+### วิธีใช้ Self-generated กับบอทนี้
+
+1. ดาวน์โหลด/ใช้ [Binance Asymmetric Key Generator](https://github.com/binance/asymmetric-key-generator/releases) (ล่าสุด v1.1.8) หรือ CLI: `npm run generate -- -k ed25519 -o id_ed25519.tar.gz`
+2. **อย่าใส่ `-p/--passphrase`** — ccxt ไม่มีทางถอดรหัส PEM ที่ encrypt ได้ (ถ้าใช้ passphrase ต้อง decrypt เองก่อนใส่ `.env`)
+3. อัปโหลด **public key** (`id_ed25519.pub`) ให้ Binance ตอนสร้าง API key แบบ Self-generated
+4. ใส่ **private key** (PEM) ลงใน `BINANCE_API_SECRET` แบบมีขึ้นบรรทัดจริงใน quote (ดูตัวอย่างใน `.env.example`) — `python-dotenv` อ่าน multiline quote ได้ อย่าเขียน `\n` เป็นตัวอักษร
+5. `make perms` (`.env` ต้อง 600) → `make doctor` → เทสต์ testnet ก่อนเสมอ
+
+หลักการเดียวกันใช้กับ `BINANCE_TESTNET_*` และ `BINANCEUS_*` ได้ ประตูเงินจริง 4 ชั้นยังเหมือนเดิมทุกประการ (ดู [real-money gates](#real-money-gates))
+
 ## ไฟล์และ permission
 
 | ไฟล์ | Permission | ตั้งด้วย |
