@@ -39,7 +39,7 @@ def run_backtest(df: pd.DataFrame, strategy: Strategy, risk_cfg: RiskConfig, sym
 
     equity = []
     pending = HOLD
-    for idx, bar in zip(df.index, df.itertuples(index=False)):
+    for idx, bar in zip(df.index, df.itertuples(index=False), strict=True):
         ts = _ts(idx)
         engine.on_signal(ts, pending, bar.open)
         engine.on_price(ts, bar.low, bar.high, open_=bar.open)

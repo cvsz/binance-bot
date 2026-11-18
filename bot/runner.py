@@ -5,10 +5,11 @@ import logging
 import signal
 import time
 
+import ccxt
 import pandas as pd
 
 from .broker import LiveBroker, PaperBroker
-from .config import AppConfig, api_keys, db_path_for
+from .config import AppConfig, api_keys, check_live_allowed, db_path_for
 from .data import fetch_recent
 from .engine import Engine
 from .notify import Notifier
@@ -18,11 +19,13 @@ from .strategies import build_strategy
 
 log = logging.getLogger(__name__)
 
+MAX_BACKOFF = 600
+# errors that retrying cannot fix: stop instead of hammering the API
+FATAL_ERRORS = (ccxt.AuthenticationError, ccxt.AccountSuspended, ccxt.BadSymbol)
+
 
 def make_exchange(cfg: AppConfig, authenticated: bool):
-    import ccxt
-
-    params = {"enableRateLimit": True, "options": {"defaultType": "spot"}}
+    params = {"enableRateLimit": True, "options": {"defaultType": "spot", "adjustForTimeDifference": True}}
     if authenticated:
         key, secret = api_keys(cfg.testnet)
         params.update(apiKey=key, secret=secret)
@@ -34,9 +37,10 @@ def make_exchange(cfg: AppConfig, authenticated: bool):
 
 class Runner:
     def __init__(self, cfg: AppConfig, mode: str, exchange=None, broker=None, store: Store | None = None,
-                 notifier=None):
-        assert mode in ("paper", "live")
-        self.cfg, self.mode = cfg, mode
+                 notifier=None, real_money: bool = False):
+        if mode not in ("paper", "live"):
+            raise ValueError(f"mode must be 'paper' or 'live', got {mode!r}")
+        self.cfg, self.mode, self.real_money = cfg, mode, real_money
         self.ex = exchange or make_exchange(cfg, authenticated=(mode == "live"))
         self.strategy = build_strategy(cfg.strategy, cfg.strategy_params)
         self.store = store or Store(db_path_for(cfg, mode))
@@ -47,25 +51,18 @@ class Runner:
         self.engine = Engine(cfg.symbol, broker, RiskManager(cfg.risk), self.store,
                              notifier or Notifier(), mode=mode + ("-testnet" if mode == "live" and cfg.testnet else ""))
         self._stop = False
+        self.exit_code = 0
 
     # ---- startup ---------------------------------------------------------
     def restore(self) -> None:
-        self.engine.load()
-        if isinstance(self.broker, PaperBroker):
-            bal = self.store.get("paper_balances")
-            if bal:
-                self.broker.base, self.broker.quote = bal
-        elif self.engine.position:
+        self.engine.load()  # also restores paper balances
+        if self.broker.live and self.engine.position:
             base, _ = self.broker.balances()
             if base < self.engine.position.qty * 0.5:
                 log.warning("stored position not found in wallet (sold manually?) - clearing it")
                 self.engine.notifier.send(f"[{self.mode}] position {self.cfg.symbol} missing from wallet; cleared")
                 self.engine.position = None
                 self.engine.save()
-
-    def persist(self) -> None:
-        if isinstance(self.broker, PaperBroker):
-            self.store.put("paper_balances", [self.broker.base, self.broker.quote])
 
     # ---- loop ------------------------------------------------------------
     def step(self) -> None:
@@ -75,6 +72,7 @@ class Runner:
             return
         price = float(self.ex.fetch_ticker(self.cfg.symbol)["last"])
         now = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M")
+        self.engine.apply_resume_request(price)
         bar_key = df.index[-1].isoformat()
         last = self.store.get("last_bar")
         if last is None:
@@ -90,7 +88,7 @@ class Runner:
         else:
             new_bar = False
         self.engine.on_price(now, price, price)
-        self.persist()
+        self.engine.save()
         base, quote = self.broker.balances()
         equity = base * price + quote
         if new_bar:
@@ -103,12 +101,12 @@ class Runner:
             "ts": pd.Timestamp.now(tz="UTC").isoformat(), "price": price, "equity": equity,
             "base": base, "quote": quote, "symbol": self.cfg.symbol, "timeframe": self.cfg.timeframe,
             "strategy": self.cfg.strategy, "mode": self.engine.mode, "poll_seconds": self.cfg.poll_seconds,
-            "start_equity": start_equity,
+            "start_equity": start_equity, "halted": self.engine.risk.state.halted_reason,
         })
 
-    def run(self) -> None:
-        import ccxt
-
+    def run(self) -> int:
+        if self.mode == "live":
+            check_live_allowed(self.cfg, self.real_money)  # defense in depth: CLI checks too
         signal.signal(signal.SIGINT, self._handle_stop)
         signal.signal(signal.SIGTERM, self._handle_stop)
         self.restore()
@@ -116,19 +114,35 @@ class Runner:
                                   f"strategy={self.cfg.strategy}")
         backoff = self.cfg.poll_seconds
         while not self._stop:
-            try:
-                self.step()
-                backoff = self.cfg.poll_seconds
-            except ccxt.NetworkError as exc:
-                backoff = min(backoff * 2, 600)
-                log.warning("network error, retry in %ss: %s", backoff, exc)
-            except ccxt.ExchangeError as exc:
-                log.error("exchange error: %s", exc)
-                self.engine.notifier.send(f"[{self.engine.mode}] ⚠️ exchange error: {exc}")
+            backoff = self.tick(backoff)
+            if self._stop:
+                break
             self._sleep(backoff)
-        self.persist()
         self.engine.save()
-        self.engine.notifier.send(f"[{self.engine.mode}] bot stopped")
+        self.engine.notifier.send(f"[{self.engine.mode}] bot stopped" +
+                                  (f" (exit code {self.exit_code})" if self.exit_code else ""))
+        return self.exit_code
+
+    def tick(self, backoff: float) -> float:
+        """One guarded step. Returns the delay before the next one."""
+        try:
+            self.step()
+            return self.cfg.poll_seconds
+        except FATAL_ERRORS as exc:
+            log.critical("fatal exchange error, stopping: %s", exc)
+            self.engine.notifier.send(f"[{self.engine.mode}] ⛔ STOPPED - fatal error: {exc}"
+                                      + (" (open position is NOT protected!)" if self.engine.position else ""))
+            self.exit_code = 3
+            self._stop = True
+        except ccxt.NetworkError as exc:
+            log.warning("network error, retry in %ss: %s", min(backoff * 2, MAX_BACKOFF), exc)
+        except ccxt.ExchangeError as exc:
+            log.error("exchange error: %s", exc)
+            self.engine.notifier.send(f"[{self.engine.mode}] ⚠️ exchange error: {exc}")
+        except Exception as exc:  # keep managing stops even if something unexpected breaks
+            log.exception("unexpected error in trading loop")
+            self.engine.notifier.send(f"[{self.engine.mode}] ⚠️ unexpected error: {type(exc).__name__}: {exc}")
+        return min(backoff * 2, MAX_BACKOFF)
 
     def _sleep(self, seconds: float) -> None:
         end = time.time() + seconds

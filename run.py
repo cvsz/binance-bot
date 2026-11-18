@@ -8,6 +8,8 @@
   python run.py live --real-money            # REAL orders (needs extra confirmation)
   python run.py status --mode paper          # position, balances, recent trades
   python run.py dashboard                    # web dashboard at http://localhost:8080
+  python run.py health --mode paper          # exit 0 if the bot's heartbeat is fresh (Docker/monitoring)
+  python run.py resume --mode live           # clear a kill-switch halt after checking the account
 """
 from __future__ import annotations
 
@@ -61,7 +63,43 @@ def cmd_run(cfg, args, mode: str) -> int:
             return 2
         if not cfg.testnet:
             print("!!! REAL-MONEY MODE: orders will use real funds on Binance !!!", file=sys.stderr)
-    Runner(cfg, mode).run()
+    return Runner(cfg, mode, real_money=getattr(args, "real_money", False)).run()
+
+
+def cmd_health(cfg, args) -> int:
+    from bot.config import db_path_for
+    from bot.dashboard import heartbeat_status
+    from bot.store import Store
+
+    path = db_path_for(cfg, args.mode)
+    if not path.exists():
+        print(f"unhealthy: no database at {path}")
+        return 1
+    hb = Store(path, read_only=True).get("heartbeat") or {}
+    status, age = heartbeat_status(hb)
+    print(f"{status}" + (f" (heartbeat {age:.0f}s ago)" if age is not None else ""))
+    return 0 if status == "online" else 1
+
+
+def cmd_resume(cfg, args) -> int:
+    from bot.config import db_path_for
+    from bot.engine import RESUME_KEY
+    from bot.store import Store
+
+    path = db_path_for(cfg, args.mode)
+    if not path.exists():
+        print(f"no state yet at {path}")
+        return 1
+    s = Store(path)
+    reason = (s.get("risk") or {}).get("halted_reason")
+    if not reason:
+        print("bot is not halted; nothing to do")
+        return 0
+    import pandas as pd
+
+    s.put(RESUME_KEY, pd.Timestamp.now(tz="UTC").isoformat())
+    print(f"resume requested (was halted: {reason}).\n"
+          "A running bot applies it on its next poll; otherwise it applies on next start.")
     return 0
 
 
@@ -110,6 +148,9 @@ def main(argv=None) -> int:
     lv.add_argument("--real-money", action="store_true")
     st = sub.add_parser("status")
     st.add_argument("--mode", choices=["paper", "live"], default="paper")
+    for name in ("health", "resume"):
+        sp = sub.add_parser(name)
+        sp.add_argument("--mode", choices=["paper", "live"], default="paper")
     d = sub.add_parser("dashboard")
     d.add_argument("--host", default="127.0.0.1")
     d.add_argument("--port", type=int, default=8080)
@@ -118,7 +159,15 @@ def main(argv=None) -> int:
     load_dotenv()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except (OSError, ValueError) as exc:
+        print(f"config error: {exc}", file=sys.stderr)
+        return 2
+    if args.cmd == "health":
+        return cmd_health(cfg, args)
+    if args.cmd == "resume":
+        return cmd_resume(cfg, args)
     if args.cmd == "backtest":
         return cmd_backtest(cfg, args)
     if args.cmd == "status":

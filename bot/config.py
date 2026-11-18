@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 from .risk import RiskConfig
+
+TIMEFRAME_RE = re.compile(r"^\d+[smhdwM]$")
+SYMBOL_RE = re.compile(r"^[A-Z0-9]+/[A-Z0-9]+$")
 
 
 @dataclass
@@ -24,29 +28,49 @@ class AppConfig:
     poll_seconds: int = 30
     db_path: str = "data/bot.db"
 
+    def __post_init__(self):
+        if not SYMBOL_RE.match(self.symbol):
+            raise ValueError(f"symbol must look like BASE/QUOTE (e.g. BTC/USDT), got {self.symbol!r}")
+        if not TIMEFRAME_RE.match(self.timeframe):
+            raise ValueError(f"timeframe must look like 1m/15m/1h/4h/1d, got {self.timeframe!r}")
+        if self.paper_starting_quote <= 0:
+            raise ValueError("paper.starting_quote must be > 0")
+        if not 0 <= self.fee_pct < 5 or not 0 <= self.slippage_pct < 5:
+            raise ValueError("paper.fee_pct and paper.slippage_pct must be in [0, 5)")
+        if self.poll_seconds < 5:
+            raise ValueError("poll_seconds must be >= 5 to respect exchange rate limits")
+
+
+def _section(raw: dict, name: str) -> dict:
+    val = raw.get(name)
+    if val is None:
+        return {}
+    if not isinstance(val, dict):
+        raise ValueError(f"config section '{name}' must be a mapping")
+    return val
+
 
 def load_config(path: str | Path) -> AppConfig:
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-    ex = raw.get("exchange", {})
-    strat = raw.get("strategy", {})
-    paper = raw.get("paper", {})
-    loop = raw.get("loop", {})
-    cfg = AppConfig(
-        symbol=raw.get("symbol", "BTC/USDT"),
-        timeframe=raw.get("timeframe", "15m"),
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"{p} not found - copy config.example.yaml to {p.name} first")
+    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{p} must contain a YAML mapping")
+    ex, strat, paper, loop = (_section(raw, n) for n in ("exchange", "strategy", "paper", "loop"))
+    return AppConfig(
+        symbol=str(raw.get("symbol", "BTC/USDT")).upper(),
+        timeframe=str(raw.get("timeframe", "15m")),
         testnet=bool(ex.get("testnet", True)),
         strategy=strat.get("name", "ema_cross"),
-        strategy_params=strat.get("params", {}) or {},
-        risk=RiskConfig(**(raw.get("risk", {}) or {})),
+        strategy_params=strat.get("params") or {},
+        risk=RiskConfig.from_dict(_section(raw, "risk")),
         paper_starting_quote=float(paper.get("starting_quote", 1000)),
         fee_pct=float(paper.get("fee_pct", 0.1)),
         slippage_pct=float(paper.get("slippage_pct", 0.05)),
         poll_seconds=int(loop.get("poll_seconds", 30)),
-        db_path=raw.get("db_path", "data/bot.db"),
+        db_path=str(raw.get("db_path", "data/bot.db")),
     )
-    if cfg.poll_seconds < 5:
-        raise ValueError("poll_seconds must be >= 5 to respect exchange rate limits")
-    return cfg
 
 
 DB_MODES = {"paper": ".paper", "live-testnet": ".live.testnet", "live": ".live"}

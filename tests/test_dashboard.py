@@ -22,7 +22,8 @@ def populated(tmp_path):
     r = Runner(cfg, "paper", exchange=ex, notifier=NullNotifier())
     r.restore()
     for _ in range(1100):
-        r.step(); ex.i += 1
+        r.step()
+        ex.i += 1
     return cfg
 
 

@@ -9,7 +9,7 @@ import hmac
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -18,6 +18,15 @@ from .store import Store
 
 log = logging.getLogger(__name__)
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+def heartbeat_status(hb: dict) -> tuple[str, float | None]:
+    """('online'|'stale'|'offline', age in seconds) from a heartbeat record."""
+    if not hb.get("ts"):
+        return "offline", None
+    age = (datetime.now(UTC) - datetime.fromisoformat(hb["ts"])).total_seconds()
+    poll = hb.get("poll_seconds") or 30
+    return ("online" if age < max(3 * poll, 90) else "stale"), age
 
 
 def build_summary(store: Store) -> dict:
@@ -30,11 +39,7 @@ def build_summary(store: Store) -> dict:
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p <= 0]
 
-    age = None
-    if hb.get("ts"):
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(hb["ts"])).total_seconds()
-    poll = hb.get("poll_seconds") or 30
-    status = "offline" if age is None else ("online" if age < max(3 * poll, 90) else "stale")
+    status, age = heartbeat_status(hb)
 
     price = hb.get("price")
     if pos and price:
@@ -76,7 +81,7 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
         if not path or not path.exists():
             return None
         if mode not in stores:
-            stores[mode] = Store(path)
+            stores[mode] = Store(path, read_only=True)  # dashboard must never write
         return stores[mode]
 
     class Handler(BaseHTTPRequestHandler):
@@ -127,7 +132,7 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
             if url.path == "/api/summary":
                 return self._json(build_summary(store))
             if url.path == "/api/trades":
-                return self._json(list(reversed(store.trades()[-200:])))
+                return self._json(list(reversed(store.trades(limit=200))))
             if url.path == "/api/equity":
                 return self._json(store.equity_series())
             return self._json({"error": "not found"}, 404)
@@ -140,7 +145,7 @@ def serve(db_paths: dict[str, Path], host: str = "127.0.0.1", port: int = 8080) 
     if host not in LOOPBACK and not token:
         raise PermissionError("binding to a non-local address requires DASHBOARD_TOKEN to be set")
     httpd = ThreadingHTTPServer((host, port), make_handler(db_paths, token))
-    url = f"http://{'localhost' if host in LOOPBACK else host}:{port}/" + (f"?token=<DASHBOARD_TOKEN>" if token else "")
+    url = f"http://{'localhost' if host in LOOPBACK else host}:{port}/" + ("?token=<DASHBOARD_TOKEN>" if token else "")
     print(f"dashboard: {url}  (Ctrl+C to stop)")
     try:
         httpd.serve_forever()

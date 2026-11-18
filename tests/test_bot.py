@@ -1,5 +1,3 @@
-import os
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -90,7 +88,7 @@ def test_daily_loss_halt_and_reset():
 def test_paper_broker_round_trip_costs():
     b = PaperBroker(1000, fee_pct=0.1, slippage_pct=0.05)
     f = b.buy_quote(500, 100)
-    s = b.sell_qty(f.qty, 100)
+    b.sell_qty(f.qty, 100)
     assert b.base == 0
     assert 998 < b.quote < 1000  # paid fees+slippage both ways
 

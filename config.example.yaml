@@ -25,6 +25,7 @@ risk:
   max_daily_loss_pct: 3.0   # ขาดทุนรายวันเกินนี้ -> หยุดเปิดไม้ใหม่จนถึงวันถัดไป (UTC)
   max_trades_per_day: 10
   cooldown_bars: 2          # รอกี่แท่งหลังปิดไม้
+  max_drawdown_halt_pct: null  # เช่น 15 = หยุดเปิดไม้ถ้าพอร์ตลดจากจุดสูงสุด 15% (ปลดด้วย `run.py resume`)
 
 paper:                      # ใช้กับ backtest และ paper
   starting_quote: 1000      # เงินเริ่มต้น (USDT)

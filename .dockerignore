@@ -1,0 +1,14 @@
+# keep secrets, local state and the venv out of the build context
+.env
+.env.*
+config.yaml
+data/
+reports/
+.venv/
+venv/
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+tests/

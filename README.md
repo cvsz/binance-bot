@@ -15,9 +15,10 @@
 | **live (เงินจริง)** | Binance | **เงินจริง** | `python run.py live --real-money` + ยืนยันใน `.env` |
 
 - **กลยุทธ์**: `ema_cross` (ตามเทรนด์ EMA ตัดกัน + กรอง RSI) และ `rsi_reversion` (ซื้อตอน RSI ฟื้นจาก oversold ในขาขึ้น) — เพิ่มเองได้ใน `bot/strategies.py`
-- **บริหารความเสี่ยง**: คำนวณขนาดไม้จาก % ความเสี่ยงต่อไม้, stop-loss บังคับ, take-profit, trailing stop, จำกัดเงินต่อไม้, หยุดเปิดไม้เมื่อขาดทุนรายวันเกินกำหนด, จำกัดจำนวนไม้ต่อวัน, cooldown
+- **บริหารความเสี่ยง**: คำนวณขนาดไม้จาก % ความเสี่ยงต่อไม้, stop-loss บังคับ, take-profit, trailing stop, จำกัดเงินต่อไม้, หยุดเปิดไม้เมื่อขาดทุนรายวันเกินกำหนด, จำกัดจำนวนไม้ต่อวัน, cooldown, และ kill switch เมื่อพอร์ตลดจากจุดสูงสุดเกิน `max_drawdown_halt_pct` (ไม่บังคับ)
 - **ไม่มี lookahead**: สัญญาณใช้เฉพาะแท่งเทียนที่ปิดแล้ว, backtest ส่งคำสั่งที่ราคาเปิดของแท่งถัดไป (เหมือนของจริง) และคิดค่าธรรมเนียม + slippage
-- **ทนทาน**: บันทึกสถานะลง SQLite (รีสตาร์ทแล้วทำต่อได้), retry เมื่อเน็ตหลุด, ปิดอย่างปลอดภัยเมื่อกด Ctrl+C
+- **ทนทาน**: บันทึกสถานะลง SQLite แบบ transaction เดียว (รีสตาร์ทแล้วทำต่อได้), retry เมื่อเน็ตหลุด, ลูปไม่ตายเมื่อเจอ error ที่ไม่คาดคิด, หยุดทันทีเมื่อ API key ใช้ไม่ได้, ปิดอย่างปลอดภัยเมื่อกด Ctrl+C
+- **คำสั่งซื้อขายไม่หาย**: ทุกออเดอร์มี client order id ถ้าเน็ตหลุดหลังส่งออเดอร์ บอทจะค้นหาออเดอร์นั้นแทนการลืมไป ถ้ายืนยันสถานะไม่ได้จะ **หยุดเปิดไม้ใหม่** และแจ้งเตือนให้ตรวจบัญชี
 - **ไม่แตะเหรียญเดิมของคุณ**: บอทขายเฉพาะจำนวนที่ตัวเองซื้อ
 - **แจ้งเตือน Telegram** (ไม่บังคับ)
 
@@ -43,6 +44,7 @@ python run.py backtest --csv my_ohlcv.csv          # CSV: timestamp,open,high,lo
 ```bash
 python run.py paper
 python run.py status --mode paper     # ดูสถานะ/ไม้ล่าสุด
+python run.py health --mode paper     # exit 0 ถ้าบอทยังส่ง heartbeat (ใช้กับ Docker/monitoring)
 ```
 ปล่อยรันอย่างน้อย 1–2 สัปดาห์
 
@@ -58,6 +60,19 @@ python run.py status --mode paper     # ดูสถานะ/ไม้ล่า
 4. `python run.py live --real-money`
 
 ขาดข้อใดข้อหนึ่ง บอทจะไม่ยอมเริ่ม
+
+## เมื่อบอทหยุดเปิดไม้ (HALTED)
+
+บอทจะหยุดเปิดไม้ใหม่ (แต่ยังดูแล stop-loss ของไม้ที่เปิดอยู่) เมื่อ:
+- ขาดทุนรายวันเกิน `max_daily_loss_pct` — ปลดเองอัตโนมัติวันถัดไป (UTC)
+- พอร์ตลดจากจุดสูงสุดเกิน `max_drawdown_halt_pct` — **ต้องปลดเอง**
+- ส่งออเดอร์แล้วยืนยันผลไม่ได้ (เช่นเน็ตหลุดนานๆ) — **ต้องตรวจบัญชีบน Binance ก่อนแล้วค่อยปลด**
+
+```bash
+python run.py resume --mode live      # ใช้ได้ทั้งตอนบอทรันอยู่และหยุดอยู่
+```
+
+ถ้าไม้มีขนาดเล็กกว่าขั้นต่ำของ Binance (dust) จนขายไม่ได้ บอทจะเลิกติดตามไม้นั้น (เหรียญยังอยู่ในกระเป๋า) และแจ้งเตือน แทนการพยายามขายซ้ำไม่รู้จบ
 
 ## Dashboard
 
@@ -80,14 +95,19 @@ python run.py dashboard              # เปิด http://localhost:8080
 
 ## รันแบบ 24/7 ด้วย Docker
 ```bash
+mkdir -p data                       # สร้างเองก่อน ไม่งั้น Docker สร้างเป็น root แล้วบอทเขียนไม่ได้
 docker compose up -d --build        # บอท (paper) + dashboard ที่ http://localhost:8080/?token=<DASHBOARD_TOKEN>
+docker compose ps                   # ดูสถานะ healthcheck
 docker compose logs -f
 ```
+เวอร์ชันแพ็กเกจที่ผ่านเทสถูกล็อกไว้ใน `constraints.txt` (Docker ใช้ไฟล์นี้)
 
 ## ข้อควรรู้
 - **Long-only spot**: ซื้อแล้วขาย ไม่มี short/leverage/futures (ตั้งใจเพื่อความปลอดภัย)
 - **Stop-loss/TP ทำงานฝั่งบอท** (บอทเช็คราคาทุก `poll_seconds`) ถ้าบอทดับ stop จะไม่ทำงาน — ควรรันบน VPS/Docker ที่ `restart: unless-stopped` และเปิดแจ้งเตือน Telegram
 - จำกัดขาดทุนรายวันนับตามวัน **UTC** (07:00 เวลาไทย)
+- ในโหมด live ขนาดไม้/ขาดทุนรายวัน/drawdown คำนวณจาก **ยอดทั้งบัญชี** (base + quote) ถ้ามีเหรียญเดิมอยู่ ราคาเหรียญเดิมจะมีผลด้วย — แนะนำใช้ sub-account แยกสำหรับบอท
+- `.env` ควรเป็น `chmod 600` (อ่านได้เฉพาะเจ้าของ)
 - ใช้ Binance global (binance.com) — **Binance TH** เป็นคนละระบบ/API ใช้กับบอทนี้ไม่ได้โดยตรง
 - กำหนดค่าธรรมเนียม/slippage ใน `paper` ให้ใกล้ของจริง (Binance spot ปกติ 0.1%)
 
@@ -103,11 +123,12 @@ bot/runner.py       ลูปรัน paper/live
 bot/store.py        SQLite: บันทึกเทรด + สถานะ
 bot/dashboard.py    web dashboard (stdlib, read-only) + dashboard.html
 run.py              CLI
-tests/              pytest (26 tests)
+tests/              pytest (52 tests)
 ```
 
 ## ทดสอบ
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt -c constraints.txt
 pytest -q
+ruff check .
 ```
