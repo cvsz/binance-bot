@@ -287,3 +287,20 @@ def test_health_command(tmp_path):
     hb["ts"] = "2000-01-01T00:00:00+00:00"
     r.store.put("heartbeat", hb)
     assert run.main(["-c", str(cpath), "health"]) == 1
+
+
+# ---- backup command ---------------------------------------------------------------------
+
+def test_backup_command(tmp_path):
+    cfg = AppConfig(db_path=str(tmp_path / "data" / "bot.db"))
+    cpath = write_cfg(tmp_path, cfg)
+    out = tmp_path / "bk"
+    assert run.main(["-c", str(cpath), "backup", "--dir", str(out)]) == 1  # nothing to back up
+    live = Store(db_path_for(cfg, "paper"))
+    live.put("position", {"qty": 1})
+    live.log_trade(ts="t", side="buy", qty=1.0)
+    assert run.main(["-c", str(cpath), "backup", "--dir", str(out)]) == 0
+    files = list(out.glob("bot.paper.*.db"))
+    assert len(files) == 1
+    copy = Store(files[0], read_only=True)
+    assert copy.get("position") == {"qty": 1} and len(copy.trades()) == 1

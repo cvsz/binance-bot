@@ -109,6 +109,7 @@ def run_steps(runner, ex, n):
         ex.i += 1
 
 
+@pytest.mark.slow
 def test_paper_runner_trades_and_persists(tmp_path):
     ex = FakeExchange(synthetic(1500))
     cfg = AppConfig(db_path=str(tmp_path / "bot.db"))
@@ -133,6 +134,7 @@ def test_first_bar_not_traded(tmp_path):
     assert store.get("last_bar") is not None and store.trades() == []
 
 
+@pytest.mark.slow
 def test_live_runner_with_fake_exchange(tmp_path):
     ex = FakeExchange(synthetic(1500))
     store = Store()

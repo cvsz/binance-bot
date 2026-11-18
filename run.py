@@ -10,6 +10,7 @@
   python run.py dashboard                    # web dashboard at http://localhost:8080
   python run.py health --mode paper          # exit 0 if the bot's heartbeat is fresh (Docker/monitoring)
   python run.py resume --mode live           # clear a kill-switch halt after checking the account
+  python run.py backup --dir backups         # consistent copy of every bot database (safe while running)
 """
 from __future__ import annotations
 
@@ -134,6 +135,38 @@ def cmd_dashboard(cfg, args) -> int:
     return 0
 
 
+def cmd_backup(cfg, args) -> int:
+    import sqlite3
+    import time
+
+    from bot.config import DB_MODES
+
+    base = Path(cfg.db_path)
+    out = Path(args.dir)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    done = 0
+    for suffix in DB_MODES.values():
+        src = base.with_name(base.stem + suffix + base.suffix)
+        if not src.exists():
+            continue
+        out.mkdir(parents=True, exist_ok=True)
+        dst = out / f"{src.stem}.{ts}{src.suffix}"
+        # SQLite online backup API: consistent even while the bot is writing
+        s = sqlite3.connect(src.resolve().as_uri() + "?mode=ro", uri=True)
+        d = sqlite3.connect(dst)
+        try:
+            s.backup(d)
+        finally:
+            d.close()
+            s.close()
+        print(f"  {src} -> {dst}")
+        done += 1
+    if not done:
+        print(f"no databases found next to {base}")
+        return 1
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("-c", "--config", default="config.yaml")
@@ -148,6 +181,8 @@ def main(argv=None) -> int:
     lv.add_argument("--real-money", action="store_true")
     st = sub.add_parser("status")
     st.add_argument("--mode", choices=["paper", "live"], default="paper")
+    bk = sub.add_parser("backup")
+    bk.add_argument("--dir", default="backups")
     for name in ("health", "resume"):
         sp = sub.add_parser(name)
         sp.add_argument("--mode", choices=["paper", "live"], default="paper")
@@ -168,6 +203,8 @@ def main(argv=None) -> int:
         return cmd_health(cfg, args)
     if args.cmd == "resume":
         return cmd_resume(cfg, args)
+    if args.cmd == "backup":
+        return cmd_backup(cfg, args)
     if args.cmd == "backtest":
         return cmd_backtest(cfg, args)
     if args.cmd == "status":

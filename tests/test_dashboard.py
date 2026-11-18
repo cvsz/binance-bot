@@ -46,6 +46,7 @@ def test_db_paths():
     assert str(db_path_for(AppConfig(testnet=False), "live")).endswith("bot.live.db")
 
 
+@pytest.mark.slow
 def test_summary_contents(populated):
     s = build_summary(Store(db_path_for(populated, "paper")))
     assert s["status"] == "online"
@@ -55,6 +56,7 @@ def test_summary_contents(populated):
     assert len(Store(db_path_for(populated, "paper")).equity_series()) > 100
 
 
+@pytest.mark.slow
 def test_http_endpoints(populated):
     paths = {"paper": db_path_for(populated, "paper"), "live": db_path_for(populated, "live")}
     httpd, base = start(make_handler(paths, token=None))
@@ -72,6 +74,7 @@ def test_http_endpoints(populated):
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_token_required(populated):
     httpd, base = start(make_handler({"paper": db_path_for(populated, "paper")}, token="s3cret"))
     try:
