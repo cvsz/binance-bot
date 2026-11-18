@@ -15,3 +15,5 @@ tests/
 backups/
 logs/
 Makefile
+scripts/
+docs/
