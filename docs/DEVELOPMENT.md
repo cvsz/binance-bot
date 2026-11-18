@@ -25,6 +25,7 @@ tests/
   test_runner.py      Runner + FakeExchange (จำลอง ccxt รวมการจำลอง timeout/error)
   test_dashboard.py   summary, HTTP endpoints, token
   test_hardening.py   regression tests ของการแก้ไขจาก audit (order recovery, dust, kill switch, config ฯลฯ)
+  test_production.py  regression tests ของ production hardening (fill confirmation, stop reason, reconciliation, config, dashboard, kill switch)
 docs/               เอกสาร
 scripts/            check_docs.py, check_secrets.py (ใช้โดย make ci)
 run.py              CLI

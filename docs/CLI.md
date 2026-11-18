@@ -87,7 +87,7 @@ python run.py [-c CONFIG] [-v] <command> [options]
 | | `restore` | `MODE=… FILE=…` กู้คืน DB — ต้องหยุดบอทก่อน, DB เดิมถูกย้ายไป `backups/pre-restore-<ts>/` |
 | | `reset-paper` | เริ่ม paper ใหม่ — ย้าย DB paper ไป `backups/paper-reset-<ts>/` (ไม่ลบ, ใช้กับ paper เท่านั้นเสมอ) |
 | | `clean-reports` | ลบ `reports/` |
-| Docker | `up` | `MODE=paper\|live` → compose up บอท + dashboard (เตือนถ้าไม่มี `DASHBOARD_TOKEN`) |
+| Docker | `up` | `MODE=paper\|live` → compose up บอท + dashboard (**ปฏิเสธถ้า `DASHBOARD_TOKEN` ว่าง**; dashboard container ได้เฉพาะ token ไม่ได้ `.env` ทั้งไฟล์) |
 | | `docker-build`, `down`, `dlogs`, `dps`, `dconfig` | build / down / logs / ps+health / validate compose |
 | Housekeeping | `clean`, `distclean` | ลบ cache / + ลบ `.venv` — **ไม่แตะ** `data/`, `backups/`, `logs/`, `.env`, `config.yaml` |
 
