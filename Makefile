@@ -19,6 +19,11 @@ PIP        := $(PY) -m pip
 CONFIG     ?= config.yaml
 MODE       ?= paper
 DAYS       ?= 90
+SYMBOL     ?= BTCUSDT
+INTERVAL   ?= 15m
+START      ?=
+END        ?=
+DATA_FILE  ?=
 CSV        ?=
 OUT        ?= reports
 HOST       ?= 127.0.0.1
@@ -255,6 +260,13 @@ ps: ## List running bot tmux sessions
 	@tmux ls 2>/dev/null | grep '^binance-bot' || echo "no bot sessions"
 
 ##@ Data
+.PHONY: public-data
+public-data: $(STAMP) ## Download Binance public klines -> CSV for backtest (SYMBOL/INTERVAL/DAYS or START/END)
+	@mkdir -p data $(OUT)
+	$(PY) scripts/fetch_public_data.py --symbol $(SYMBOL) --interval $(INTERVAL) \
+	    $(if $(START),--start $(START),--days $(DAYS)) $(if $(END),--end $(END),) \
+	    --out $(if $(DATA_FILE),$(DATA_FILE),$(OUT)/public_$(SYMBOL)_$(INTERVAL).csv)
+
 .PHONY: backup
 backup: $(STAMP) require-config ## Consistent SQLite backup of all bot DBs to backups/ (safe while running)
 	$(RUN) backup --dir $(BACKUP_DIR)

@@ -82,7 +82,8 @@ python run.py [-c CONFIG] [-v] <command> [options]
 | | `status`, `health`, `resume`, `dashboard` | ตาม `run.py` |
 | tmux | `start`, `stop`, `restart`, `attach`, `logs`, `ps` | รันเบื้องหลัง — ดู [OPERATIONS.md](OPERATIONS.md#tmux-make-start) |
 | | `errors` | 50 บรรทัด WARNING/ERROR/HALTED ล่าสุดจาก log ทั้งหมด |
-| Data | `backup` | backup ทุก DB (ปลอดภัยขณะบอทรัน) |
+| Data | `public-data` | โหลด klines จาก `data.binance.vision` → CSV (`SYMBOL`/`INTERVAL`/`DAYS` หรือ `START`/`END`, `DATA_FILE`) ตรวจ SHA-256 ทุกไฟล์ แล้วใช้ `make backtest CSV=…` |
+| | `backup` | backup ทุก DB (ปลอดภัยขณะบอทรัน) |
 | | `backups` | แสดงรายการ backup |
 | | `restore` | `MODE=… FILE=…` กู้คืน DB — ต้องหยุดบอทก่อน, DB เดิมถูกย้ายไป `backups/pre-restore-<ts>/` |
 | | `reset-paper` | เริ่ม paper ใหม่ — ย้าย DB paper ไป `backups/paper-reset-<ts>/` (ไม่ลบ, ใช้กับ paper เท่านั้นเสมอ) |

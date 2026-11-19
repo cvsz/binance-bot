@@ -26,8 +26,9 @@ tests/
   test_dashboard.py   summary, HTTP endpoints, token
   test_hardening.py   regression tests ของการแก้ไขจาก audit (order recovery, dust, kill switch, config ฯลฯ)
   test_production.py  regression tests ของ production hardening (fill confirmation, stop reason, reconciliation, config, dashboard, kill switch)
+  test_public_data.py  แปลง klines/µs→ms/CSV/checksum (offline, ไม่ต่อเน็ต)
 docs/               เอกสาร
-scripts/            check_docs.py, check_secrets.py (ใช้โดย make ci)
+scripts/            check_docs.py, check_secrets.py (make ci), fetch_public_data.py (make public-data)
 run.py              CLI
 Makefile            คำสั่งสำหรับ dev/ops
 pyproject.toml      ตั้งค่า pytest + ruff

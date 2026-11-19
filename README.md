@@ -55,6 +55,10 @@ cp .env.example .env
 ```bash
 python run.py backtest --days 180
 python run.py backtest --csv my_ohlcv.csv          # CSV: timestamp,open,high,low,close,volume
+
+# หรือใช้ชุดข้อมูลสาธารณะของ Binance (ตรวจ checksum, ไม่ติด rate limit, ทำ backtest หลายช่วงง่าย)
+make public-data SYMBOL=BTCUSDT INTERVAL=15m DAYS=365
+make backtest CSV=reports/public_BTCUSDT_15m.csv
 ```
 ผลลัพธ์: ผลตอบแทน, เทียบกับ buy & hold, max drawdown, win rate, profit factor, Sharpe และไฟล์ `reports/backtest_trades.csv`, `reports/backtest_equity.csv`
 

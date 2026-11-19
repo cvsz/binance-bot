@@ -79,11 +79,18 @@ make backtest                         # 90 วันจาก Binance (ข้อ
 make backtest DAYS=365
 make backtest CSV=my_ohlcv.csv        # คอลัมน์: timestamp,open,high,low,close,volume
 make backtest VERBOSE=1               # log ทุกไม้
+
+# ทางเลือก: ใช้ชุดข้อมูลสาธารณะ (ไม่ติด rate limit, มี checksum, ทำ walk-forward/OOS ง่าย)
+make public-data SYMBOL=BTCUSDT INTERVAL=15m DAYS=365
+make backtest CSV=reports/public_BTCUSDT_15m.csv
+# หรือระบุช่วง: make public-data START=2024-01-01 END=2025-12-31
 ```
 
 ผลลัพธ์ที่พิมพ์: `total_return_pct`, `buy_and_hold_pct`, `max_drawdown_pct`, `closed_trades`, `win_rate_pct`, `profit_factor`, `avg_trade_pnl`, `sharpe` (annualized ตามขนาดแท่ง), `exit_reasons` และไฟล์ `reports/backtest_trades.csv`, `reports/backtest_equity.csv`
 
 CSV: `timestamp` เป็น epoch ms หรือข้อความวันที่ก็ได้; แถวที่ซ้ำ timestamp จะใช้แถวสุดท้าย, แถวที่มีค่าว่างถูกตัดทิ้ง
+
+`make public-data` โหลดจาก [Binance Data Collection](https://data.binance.vision/) (daily/monthly klines ทุก symbol) ตรวจ SHA-256 ทุก zip และแปลง timestamp ไมโครวินาทีของ Spot ตั้งแต่ 2025-01-01 ให้เป็น ms ก่อนเขียน CSV (cache อยู่ใน `data/public-cache/`) — ข้อมูลมี [Dataset Terms](https://github.com/binance/binance-public-data/blob/master/TERMS_AND_CONDITIONS.md) ของ Binance ควรอ่านก่อนใช้เชิงพาณิชย์ สคริปต์นี้ **ไม่แตะ** ตรรกะ backtest/Engine
 
 ### โมเดลการจำลอง
 
