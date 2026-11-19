@@ -122,9 +122,22 @@ def db_path_for(cfg: AppConfig, mode: str) -> Path:
 
 
 def api_keys(testnet: bool, venue: str = DEFAULT_VENUE) -> tuple[str | None, str | None]:
-    prefix = get_venue(venue).key_prefix
-    prefix = f"{prefix}_TESTNET_" if testnet else f"{prefix}_"
-    return os.getenv(prefix + "API_KEY"), os.getenv(prefix + "API_SECRET")
+    """Read credentials for a venue, accepting its documented env-var aliases.
+
+    The first prefix that has BOTH key and secret set wins. Different naming
+    conventions from other projects (BINANCE_TH_*, BINANCE_US_*) are accepted so
+    an existing .env does not need renaming; the venue itself still decides which
+    exchange host is used.
+    """
+    selected = get_venue(venue)
+    for prefix in (selected.key_prefix,) + tuple(selected.aliases):
+        env_prefix = f"{prefix}_TESTNET_" if testnet else f"{prefix}_"
+        key, secret = os.getenv(env_prefix + "API_KEY"), os.getenv(env_prefix + "API_SECRET")
+        if key and secret:
+            return key, secret
+    # nothing complete found: return the primary pair so the gate can report which names it needs
+    env_prefix = f"{selected.key_prefix}_TESTNET_" if testnet else f"{selected.key_prefix}_"
+    return os.getenv(env_prefix + "API_KEY"), os.getenv(env_prefix + "API_SECRET")
 
 
 REAL_MONEY_ENV = "BOT_CONFIRM_REAL_MONEY"
@@ -134,9 +147,11 @@ REAL_MONEY_VALUE = "YES_I_ACCEPT_THE_RISK"
 def check_live_allowed(cfg: AppConfig, real_money_flag: bool) -> None:
     """Raise unless every safety gate for live trading is satisfied."""
     key, secret = api_keys(cfg.testnet, cfg.exchange_name)
-    prefix = get_venue(cfg.exchange_name).key_prefix
+    selected = get_venue(cfg.exchange_name)
     if not key or not secret:
-        which = f"{prefix}_TESTNET_API_KEY/SECRET" if cfg.testnet else f"{prefix}_API_KEY/SECRET"
+        suffix = "_TESTNET_API_KEY/SECRET" if cfg.testnet else "_API_KEY/SECRET"
+        names = " หรือ ".join(prefix + suffix for prefix in (selected.key_prefix,) + tuple(selected.aliases))
+        which = names
         raise PermissionError(f"live mode needs {which} in the environment or .env")
     if cfg.testnet:
         return

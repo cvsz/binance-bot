@@ -369,6 +369,28 @@ def test_config_selects_exchange_and_rejects_unsupported(tmp_path):
         load_config(write_cfg(tmp_path, body="exchange:\n  name: binanceth\n"))
 
 
+def test_api_keys_accept_user_naming_aliases(monkeypatch):
+    for k in ("BINANCE_TESTNET_API_KEY", "BINANCE_TESTNET_API_SECRET"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("BINANCE_TH_TESTNET_API_KEY", "th-key")
+    monkeypatch.setenv("BINANCE_TH_TESTNET_API_SECRET", "th-secret")
+    assert api_keys(True, "binance") == ("th-key", "th-secret")
+
+    for k in ("BINANCEUS_API_KEY", "BINANCEUS_API_SECRET"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("BINANCE_US_API_KEY", "us-key")
+    monkeypatch.setenv("BINANCE_US_API_SECRET", "us-secret")
+    assert api_keys(False, "binanceus") == ("us-key", "us-secret")
+
+
+def test_api_keys_primary_prefix_wins(monkeypatch):
+    monkeypatch.setenv("BINANCE_TESTNET_API_KEY", "primary-key")
+    monkeypatch.setenv("BINANCE_TESTNET_API_SECRET", "primary-secret")
+    monkeypatch.setenv("BINANCE_TH_TESTNET_API_KEY", "alias-key")
+    monkeypatch.setenv("BINANCE_TH_TESTNET_API_SECRET", "alias-secret")
+    assert api_keys(True, "binance") == ("primary-key", "primary-secret")
+
+
 def test_api_keys_use_venue_prefix(monkeypatch):
     monkeypatch.setenv("BINANCEUS_API_KEY", "us-key")
     monkeypatch.setenv("BINANCEUS_API_SECRET", "us-secret")

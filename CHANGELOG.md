@@ -5,6 +5,7 @@
 ## [Unreleased] — branch `audit/hardening`
 
 ### Added
+- `api_keys()` รองรับ alias ชื่อตัวแปร `BINANCE_TH_*` / `BINANCE_US_*` ที่ใช้ใน `.env` ของคุณ ( venue ยังเลือก host เดิม; ประตูเงินจริงไม่เปลี่ยน ) และ `make doctor` โชว์ชื่อทั้ง 2 แบบ
 - `make public-data`: โหลด klines จาก Binance Data Collection พร้อมตรวจ SHA-256, แปลง µs→ms และเขียน CSV ให้ `make backtest CSV=…` ใช้ได้เลย (ไม่แตะ Engine/backtest)
 - รองรับ API key แบบ Self-generated (Ed25519/RSA): ใส่ PEM private key ใน `*_API_SECRET` ได้เลย (ccxt ตรวจจับอัตโนมัติ) พร้อมคำแนะนำใน `docs/SECURITY.md` และตัวอย่าง `.env.example`
 - Venue abstraction (`bot/venues.py`): รองรับ `binance` และ `binanceus` แยก key prefix/DB suffix; `binanceth` ถูกปฏิเสธพร้อมเหตุผล (ccxt ไม่มีคลาส, TH ใช้ `/api/v1`)

@@ -19,11 +19,16 @@ class Venue:
     label: str
     supports_testnet: bool = True
     note: str = ""
+    # Alternative env-var prefixes accepted for the same venue (e.g. BINANCE_US_).
+    # The first prefix with BOTH key and secret set wins.
+    aliases: tuple[str, ...] = ()
 
 
 VENUES: dict[str, Venue] = {
-    "binance": Venue("binance", "binance", "BINANCE", "Binance global (spot)"),
-    "binanceus": Venue("binanceus", "binanceus", "BINANCEUS", "Binance.US (spot)"),
+    "binance": Venue("binance", "binance", "BINANCE", "Binance global (spot)",
+                     aliases=("BINANCE", "BINANCE_TH")),
+    "binanceus": Venue("binanceus", "binanceus", "BINANCEUS", "Binance.US (spot)",
+                       aliases=("BINANCEUS", "BINANCE_US")),
     # Binance TH is NOT wired to a ccxt class on purpose:
     #  - ccxt 4.5.93 has no `binanceth` class (upstream issue ccxt/ccxt#26585 is open)
     #  - Binance TH uses /api/v1 while ccxt.binance hardcodes /api/v3 paths, so

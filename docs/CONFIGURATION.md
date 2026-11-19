@@ -107,6 +107,8 @@ db_path: data/eth.db
 
 `*_API_SECRET` รับได้ทั้ง secret แบบ HMAC (System generated) และ **PEM private key แบบ Self-generated (Ed25519/RSA)** — ccxt เลือกวิธีเซ็นให้เองจากเนื้อหา (ดู [SECURITY.md](SECURITY.md#api-key-types)); ถ้าเป็น PEM ต้องเขียนเป็น quoted multiline ใน `.env` และ **ห้ามเข้ารหัสด้วย passphrase**
 
+บอทรับชื่อตัวแปรแบบอื่นได้ด้วย (alias ตาม `bot/venues.py`): `BINANCE_TH_*` ใช้แทน `BINANCE_*` ของ venue `binance`, และ `BINANCE_US_*` ใช้แทน `BINANCEUS_*` ของ venue `binanceus` — ตัวใดตั้งครบทั้ง key+secret ตัวนั้นจะถูกใช้ก่อน **แต่ venue ยังเป็นคนเลือก host ที่จะยิง** (เช่น key TH ก็ยังใช้กับ host global ไม่ได้) ดู [SECURITY.md](SECURITY.md#api-key-types)
+
 ตัวแปรใน environment จริงมีผลเหนือกว่าค่าใน `.env` (พฤติกรรมของ `python-dotenv`)
 
 ## ตรวจ config
