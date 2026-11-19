@@ -25,7 +25,7 @@
 
 | Key | ค่าเริ่มต้น | ความหมาย |
 |---|---|---|
-| `name` | `binance` | `binance` (Binance global) หรือ `binanceus` (Binance.US) — เปลี่ยน venue ต้องใช้ key prefix ใหม่ และ DB ได้ suffix ใหม่อัตโนมัติ · `binanceth` **ยังไม่รองรับ** (ccxt ไม่มีคลาส + TH ใช้ `/api/v1`, [ccxt#26585](https://github.com/ccxt/ccxt/issues/26585)) → โหลด config จะ error พร้อมเหตุผล |
+| `name` | `binance` | `binance` (global), `binanceus` (Binance.US), หรือ `binanceth` (**Binance TH — เงินจริงเท่านั้น**, ใช้ adapter เฉพาะ `bot/th_exchange.py` เพราะ ccxt ไม่มีคลาสและ TH ใช้ `/api/v1`) — เปลี่ยน venue ต้องใช้ key prefix/DB suffix ใหม่ · `binanceth` + `testnet: true` จะถูกปฏิเสธ (TH ไม่มี testnet) |
 | `testnet` | `true` | เฉพาะ `true` / `false` (หรือ YAML boolean) — `bool("false")` ไม่ถูกแปลงเป็น false · `true` = Spot Testnet (เงินปลอม) · `false` = เงินจริง (ต้องผ่านประตูความปลอดภัยเพิ่ม ดู [SECURITY.md](SECURITY.md#real-money-gates)) |
 
 ### `strategy`

@@ -22,6 +22,8 @@ class Venue:
     # Alternative env-var prefixes accepted for the same venue (e.g. BINANCE_US_).
     # The first prefix with BOTH key and secret set wins.
     aliases: tuple[str, ...] = ()
+    # Custom (non-ccxt) exchange adapter, when ccxt has no class for the venue.
+    custom: str | None = None
 
 
 VENUES: dict[str, Venue] = {
@@ -29,15 +31,13 @@ VENUES: dict[str, Venue] = {
                      aliases=("BINANCE", "BINANCE_TH")),
     "binanceus": Venue("binanceus", "binanceus", "BINANCEUS", "Binance.US (spot)",
                        aliases=("BINANCEUS", "BINANCE_US")),
-    # Binance TH is NOT wired to a ccxt class on purpose:
-    #  - ccxt 4.5.93 has no `binanceth` class (upstream issue ccxt/ccxt#26585 is open)
-    #  - Binance TH uses /api/v1 while ccxt.binance hardcodes /api/v3 paths, so
-    #    overriding the base URL alone would produce silently broken orders.
-    #  Adding it needs a dedicated signed-REST adapter and real sandbox validation.
-    "binanceth": Venue(
-        "binanceth", "", "BINANCETH", "Binance TH (THB)", supports_testnet=False,
-        note="not supported: ccxt has no binanceth class and TH uses /api/v1 (ccxt/ccxt#26585)",
-    ),
+    # ccxt has no `binanceth` class and TH uses /api/v1 (not /api/v3), so this
+    # venue uses a dedicated signed-REST adapter bot/th_exchange.py.
+    # TH has NO public testnet: every order is REAL MONEY.
+    "binanceth": Venue("binanceth", "", "BINANCETH", "Binance TH (THB, real money only)",
+                       supports_testnet=False, aliases=("BINANCETH", "BINANCE_TH"),
+                       custom="THExchange",
+                       note="real money only; no testnet; uses bot/th_exchange.py"),
 }
 
 DEFAULT_VENUE = "binance"
@@ -48,6 +48,6 @@ def get_venue(name: str) -> Venue:
     venue = VENUES.get(str(name).strip().lower())
     if venue is None:
         raise ValueError(f"unknown exchange.name {name!r} (valid: {', '.join(sorted(VENUES))})")
-    if not venue.ccxt_id:
+    if not venue.ccxt_id and not venue.custom:
         raise ValueError(f"exchange.name={venue.id} is not supported: {venue.note}")
     return venue

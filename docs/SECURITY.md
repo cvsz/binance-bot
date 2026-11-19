@@ -24,6 +24,8 @@ Testnet key (https://testnet.binance.vision) แยกจาก key จริง
 
 ถ้าเปลี่ยน `exchange.name` เป็น `binanceus` ให้ใช้ prefix `BINANCEUS_*` แทน — ประตูความปลอดภัยเหมือนเดิมทุกประการ (ตรวจตาม venue ที่เลือก ไม่ใช่ key ของ venue อื่น) และ DB แยก suffix ให้โดยอัตโนมัติ
 
+**Binance TH (`exchange.name: binanceth`)** ใช้ adapter เฉพาะ `bot/th_exchange.py` (ยิง `https://api.binance.th/api/v1` พร้อม HMAC signing) เพราะ ccxt ไม่มีคลาสรองรับ **TH ไม่มี testnet → ทุกออเดอร์เป็นเงินจริง** config จะปฏิเสธ `testnet: true` สำหรับ venue นี้ และต้องผ่านประตู `--real-money` + `BOT_CONFIRM_REAL_MONEY` เหมือน venue อื่น (ตั้งค่า `exchange.testnet: false` และใช้ `make live-real` เท่านั้น) รองรับเฉพาะ key แบบ HMAC ใน adapter นี้ (RSA/Ed25519 ยังไม่รองรับและจะ error ชัดเจน)
+
 <a id="real-money-gates"></a>
 ## ประตูก่อนใช้เงินจริง
 

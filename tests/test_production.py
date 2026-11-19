@@ -356,17 +356,30 @@ def test_dotenv_reads_multiline_pem(tmp_path):
 def test_venue_registry():
     assert get_venue("binance").key_prefix == "BINANCE"
     assert get_venue("BINANCEUS").ccxt_id == "binanceus"
-    with pytest.raises(ValueError, match="not supported"):
-        get_venue("binanceth")
+    assert get_venue("binanceth").custom == "THExchange"  # now served by the TH adapter
     with pytest.raises(ValueError, match="unknown exchange"):
         get_venue("somethingelse")
+
+
+def test_config_rejects_testnet_for_real_money_only_venue(tmp_path):
+    with pytest.raises(ValueError, match="no testnet"):
+        load_config(write_cfg(tmp_path, body="exchange:\n  name: binanceth\n  testnet: true\n"))
+    cfg = load_config(write_cfg(tmp_path, body="exchange:\n  name: binanceth\n  testnet: false\n"))
+    assert cfg.exchange_name == "binanceth" and cfg.testnet is False
+
+
+def test_make_exchange_returns_th_adapter():
+    ex = make_exchange(AppConfig(exchange_name="binanceth", testnet=False), authenticated=False)
+    assert ex.id == "binanceth"
+    with pytest.raises(PermissionError, match="REAL MONEY"):
+        ex.set_sandbox_mode(True)
 
 
 def test_config_selects_exchange_and_rejects_unsupported(tmp_path):
     cfg = load_config(write_cfg(tmp_path, body="exchange:\n  name: binanceus\n  testnet: true\n"))
     assert cfg.exchange_name == "binanceus"
-    with pytest.raises(ValueError, match="not supported"):
-        load_config(write_cfg(tmp_path, body="exchange:\n  name: binanceth\n"))
+    with pytest.raises(ValueError, match="unknown exchange"):
+        load_config(write_cfg(tmp_path, body="exchange:\n  name: kraken\n"))
 
 
 def test_api_keys_accept_user_naming_aliases(monkeypatch):

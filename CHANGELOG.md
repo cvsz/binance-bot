@@ -5,6 +5,7 @@
 ## [Unreleased] — branch `audit/hardening`
 
 ### Added
+- **Binance TH adapter** (`bot/th_exchange.py`): signing HMAC + `/api/v1` + order/balance/klines ผ่าน `LiveBroker` ได้เลย; `exchange.name: binanceth` ใช้ได้จริง (**เงินจริงเท่านั้น** ไม่มี testnet, `testnet: true` ถูกปฏิเสธ) พร้อม 8 offline tests + integration test
 - `api_keys()` รองรับ alias ชื่อตัวแปร `BINANCE_TH_*` / `BINANCE_US_*` ที่ใช้ใน `.env` ของคุณ ( venue ยังเลือก host เดิม; ประตูเงินจริงไม่เปลี่ยน ) และ `make doctor` โชว์ชื่อทั้ง 2 แบบ
 - `make public-data`: โหลด klines จาก Binance Data Collection พร้อมตรวจ SHA-256, แปลง µs→ms และเขียน CSV ให้ `make backtest CSV=…` ใช้ได้เลย (ไม่แตะ Engine/backtest)
 - รองรับ API key แบบ Self-generated (Ed25519/RSA): ใส่ PEM private key ใน `*_API_SECRET` ได้เลย (ccxt ตรวจจับอัตโนมัติ) พร้อมคำแนะนำใน `docs/SECURITY.md` และตัวอย่าง `.env.example`

@@ -29,6 +29,11 @@ MAX_BACKOFF = 600
 
 def make_exchange(cfg: AppConfig, authenticated: bool):
     venue = get_venue(cfg.exchange_name)
+    if venue.custom == "THExchange":
+        from .th_exchange import THExchange
+
+        key, secret = api_keys(cfg.testnet, cfg.exchange_name) if authenticated else (None, None)
+        return THExchange(key, secret)
     exchange_class = getattr(ccxt, venue.ccxt_id, None)
     if exchange_class is None:
         raise ValueError(f"ccxt has no exchange class {venue.ccxt_id!r} for venue {venue.id!r}")

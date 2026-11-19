@@ -36,4 +36,4 @@ make dashboard      # http://localhost:8080
 - **Spot long-only** — ไม่มี short, margin, futures, leverage
 - **คู่เทรดเดียวต่อโปรเซส** — ต้องการหลายเหรียญให้รันหลายโปรเซสด้วย config/`db_path` แยกกัน
 - **Market order เท่านั้น** และ **stop-loss ทำงานฝั่งบอท** — ถ้าบอทดับ stop ไม่ทำงาน (ดู [RISK.md](RISK.md#bot-side-stops))
-- รองรับ **Binance global** (binance.com) เท่านั้น — Binance TH เป็นคนละ API
+- รองรับ **Binance global** (binance.com), **Binance.US** และ **Binance TH** (ผ่าน adapter เฉพาะ [SECURITY.md](SECURITY.md#api-key-types); TH เป็น **เงินจริงเท่านั้น** ไม่มี testnet และต้องผ่านประตู `--real-money` เหมือน venue อื่น)
