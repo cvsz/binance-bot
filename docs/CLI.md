@@ -70,7 +70,7 @@ python run.py [-c CONFIG] [-v] <command> [options]
 | | `config` | สร้าง `config.yaml`/`.env` จากตัวอย่างถ้ายังไม่มี (ไม่เขียนทับ), สร้าง `data/` |
 | | `perms` | `.env` 600, โฟลเดอร์ 755, config 644 |
 | | `lock` | รัน `check` แล้วเขียน `constraints.txt` ใหม่จาก venv |
-| | `doctor` | ตรวจ Python, venv, config, `.env` (บอกแค่ว่าตั้งแล้ว/ว่าง), Docker, tmux |
+| | `doctor` | ตรวจ Python, venv, config, `.env` (บอกแค่ชื่อ key/secret ว่าตั้งแล้ว/ว่าง **ไม่โชว์ค่า**), Docker, tmux |
 | Quality | `ci` | gate เต็ม: `lint` + `docs-check` + `secrets-check` + `test` + ตรวจ compose (ถ้ามี Docker) |
 | | `check` | `lint` + `test` |
 | | `docs-check` | ตรวจลิงก์/anchor ใน Markdown ทุกไฟล์ (`scripts/check_docs.py`) |

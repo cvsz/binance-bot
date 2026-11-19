@@ -121,7 +121,7 @@ doctor: ## Diagnose environment: python, venv, config, secrets (names only), too
 print(f'config : OK {c.symbol} {c.timeframe} strategy={c.strategy} testnet={c.testnet}')" 2>&1 || echo "config : INVALID (see above)"; fi
 	@if [ -f .env ]; then \
 	    echo ".env   : perms $$(stat -c %a .env)$$([ "$$(stat -c %a .env)" = 600 ] || echo '  <- run: make perms')"; \
-	    for k in BINANCE_TESTNET_API_KEY BINANCE_API_KEY BINANCEUS_TESTNET_API_KEY BINANCEUS_API_KEY TELEGRAM_BOT_TOKEN DASHBOARD_TOKEN BOT_CONFIRM_REAL_MONEY; do \
+	    for k in BINANCE_TESTNET_API_KEY BINANCE_TESTNET_API_SECRET BINANCE_API_KEY BINANCE_API_SECRET BINANCEUS_TESTNET_API_KEY BINANCEUS_TESTNET_API_SECRET BINANCEUS_API_KEY BINANCEUS_API_SECRET TELEGRAM_BOT_TOKEN DASHBOARD_TOKEN BOT_CONFIRM_REAL_MONEY; do \
 	        v=$$( { grep -E "^$$k=" .env || true; } | head -1 | cut -d= -f2-); \
 	        printf '         %-26s %s\n' "$$k" "$$( [ -n "$$v" ] && echo set || echo empty)"; done; \
 	else echo ".env   : MISSING -> make config"; fi
