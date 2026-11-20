@@ -37,6 +37,7 @@ class Store:
                 ts TEXT, mode TEXT, symbol TEXT, side TEXT, qty REAL, price REAL,
                 quote REAL, reason TEXT, pnl_quote REAL, order_id TEXT
             );
+            CREATE INDEX IF NOT EXISTS idx_trades_ts ON trades(ts);
             CREATE TABLE IF NOT EXISTS state (k TEXT PRIMARY KEY, v TEXT);
             CREATE TABLE IF NOT EXISTS equity (ts TEXT PRIMARY KEY, equity REAL, price REAL);
             """

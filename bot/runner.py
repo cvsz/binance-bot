@@ -11,7 +11,7 @@ import pandas as pd
 
 from .broker import LiveBroker, PaperBroker
 from .config import AppConfig, api_keys, check_live_allowed, db_path_for
-from .data import fetch_recent
+from .data import drop_open_candle, fetch_recent, to_frame
 from .engine import Engine
 from .errors import FATAL_ERRORS, ErrorCategory, classify_error, retry_after
 from .notify import Notifier
@@ -64,6 +64,10 @@ class Runner:
                              notifier or Notifier(), mode=mode + ("-testnet" if mode == "live" and cfg.testnet else ""))
         self._stop = False
         self.exit_code = 0
+        # Rolling window of closed candles for signal computation. Avoids re-fetching
+        # warmup+100 candles every poll; only new closed candles are fetched incrementally.
+        self._candle_df: pd.DataFrame | None = None
+        self._candle_buffer = 10  # extra closed candles beyond warmup for indicator headroom
 
     # ---- startup ---------------------------------------------------------
     def restore(self) -> None:
@@ -116,9 +120,74 @@ class Runner:
                 return None
         return None
 
+    def _fetch_candles(self) -> pd.DataFrame:
+        """Fetch closed candles incrementally.
+
+        On the first run, fetches warmup + buffer candles. On subsequent polls,
+        fetches only candles closed since ``last_bar``. Returns a DataFrame with
+        the last ``(warmup + buffer)`` closed candles, ready for signal
+        computation. Indicators are causal so the last-bar signal is identical
+        whether computed from the full history or this rolling window.
+        """
+        warmup = self.strategy.warmup
+        keep = warmup + self._candle_buffer
+        tf_ms = self.ex.parse_timeframe(self.cfg.timeframe) * 1000
+        now_ms = self.ex.milliseconds()
+
+        last_bar = self.store.get("last_bar")
+
+        if self._candle_df is None or last_bar is None:
+            # First run: full fetch of warmup + buffer candles.
+            df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe,
+                              limit=warmup + self._candle_buffer + 10)
+            if len(df) <= warmup:
+                log.warning("not enough candles yet (%d)", len(df))
+                return df
+            self._candle_df = df
+            return df
+
+        # Incremental: fetch only candles closed since last_bar.
+        last_bar_ms = pd.Timestamp(last_bar).value // 1_000_000
+        since_ms = last_bar_ms + tf_ms
+        try:
+            new_rows = self.ex.fetch_ohlcv(self.cfg.symbol, self.cfg.timeframe,
+                                           since=since_ms, limit=50)
+        except ccxt.NetworkError:
+            log.warning("network error fetching incremental candles; using cached df")
+            return self._candle_df
+
+        if not new_rows:
+            return self._candle_df
+
+        new_df = to_frame(new_rows)
+        new_df = drop_open_candle(new_df, tf_ms, now_ms)
+
+        # If we hit the fetch limit, we may have missed candles; fall back to full fetch.
+        if len(new_rows) >= 50:
+            log.warning("incremental fetch hit limit; falling back to full fetch")
+            df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe,
+                              limit=warmup + self._candle_buffer + 10)
+            self._candle_df = df
+            return df
+
+        if new_df.empty:
+            return self._candle_df
+
+        # Append new closed candles, dedupe, trim to rolling window.
+        combined = pd.concat([self._candle_df, new_df])
+        combined = combined[~combined.index.duplicated(keep="last")]
+        combined = combined.sort_index()
+        combined = drop_open_candle(combined, tf_ms, now_ms)
+
+        if len(combined) > keep:
+            combined = combined.iloc[-keep:]
+
+        self._candle_df = combined
+        return combined
+
     # ---- loop ------------------------------------------------------------
     def step(self) -> None:
-        df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe, limit=self.strategy.warmup + 100)
+        df = self._fetch_candles()
         if len(df) <= self.strategy.warmup:
             log.warning("not enough candles yet (%d)", len(df))
             return
