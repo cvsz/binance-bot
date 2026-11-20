@@ -105,11 +105,15 @@ class LiveBroker:
     live = True
 
     def __init__(self, exchange, symbol: str, settle_attempts: int = 5, settle_delay: float = 1.0,
-                 lookup_attempts: int = 3, lookup_delay: float = 2.0):
+                 lookup_attempts: int = 3, lookup_delay: float = 2.0,
+                 balance_cache_ttl: float = 5.0):
         self.ex = exchange
         self.symbol = symbol
         self.settle_attempts, self.settle_delay = settle_attempts, settle_delay
         self.lookup_attempts, self.lookup_delay = lookup_attempts, lookup_delay
+        self.balance_cache_ttl = balance_cache_ttl
+        self._balance_cache: tuple[float, float] | None = None
+        self._balance_cache_time: float = 0.0
         self.ex.load_markets()
         if symbol not in self.ex.markets:
             raise BrokerError(f"symbol {symbol} not available on {self.ex.id}")
@@ -119,10 +123,21 @@ class LiveBroker:
         self.base_ccy, self.quote_ccy = self.market["base"], self.market["quote"]
 
     # ---- account -----------------------------------------------------------
-    def balances(self) -> tuple[float, float]:
+    def balances(self, use_cache: bool = True) -> tuple[float, float]:
+        now = time.monotonic()
+        if use_cache and self._balance_cache is not None and (now - self._balance_cache_time) < self.balance_cache_ttl:
+            return self._balance_cache
         bal = self.ex.fetch_balance()
         free = bal.get("free", {})
-        return float(free.get(self.base_ccy) or 0), float(free.get(self.quote_ccy) or 0)
+        result = (float(free.get(self.base_ccy) or 0), float(free.get(self.quote_ccy) or 0))
+        self._balance_cache = result
+        self._balance_cache_time = now
+        return result
+
+    def invalidate_balance_cache(self) -> None:
+        """Force the next balances() call to re-fetch from the exchange."""
+        self._balance_cache = None
+        self._balance_cache_time = 0.0
 
     def _limit(self, kind: str) -> float | None:
         v = ((self.market.get("limits") or {}).get(kind) or {}).get("min")
@@ -183,7 +198,7 @@ class LiveBroker:
         try:
             after = before
             for _ in range(self.settle_attempts):
-                after = self.balances()
+                after = self.balances(use_cache=False)
                 moved = after[0] - before[0] if side == "buy" else before[0] - after[0]
                 if expected <= 0 or moved >= expected * 0.999999:
                     return after
@@ -250,6 +265,7 @@ class LiveBroker:
             log.warning("buy fill taken from order response (balances unavailable)")
         avg = order.get("average") or (spent / qty)
         log.info("LIVE BUY %s qty=%.8f avg=%.8f spent=%.4f", self.symbol, qty, avg, spent)
+        self.invalidate_balance_cache()
         return Fill("buy", qty, float(avg), spent, str(order.get("id", "")))
 
     def sell_qty(self, qty: float, price: float) -> Fill:
@@ -283,4 +299,5 @@ class LiveBroker:
             log.warning("sell fill taken from order response (balances unavailable)")
         avg = order.get("average") or (received / sold if sold else price)
         log.info("LIVE SELL %s qty=%.8f avg=%.8f received=%.4f", self.symbol, sold, avg, received)
+        self.invalidate_balance_cache()
         return Fill("sell", sold, float(avg), received, str(order.get("id", "")))

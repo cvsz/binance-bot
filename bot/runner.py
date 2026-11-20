@@ -150,7 +150,7 @@ class Runner:
             new_bar = True
         # live has a single last price: no bar open, so stops keep their real reason
         self.engine.on_price(now, price, price, open_=None)
-        self.engine.save()
+        self.engine.save(force=new_bar)
         base, quote = self.broker.balances()
         equity = base * price + quote
         if new_bar:

@@ -19,7 +19,7 @@ LIVE_FEE_HEADROOM = 0.01
 
 class Engine:
     def __init__(self, symbol: str, broker, risk: RiskManager, store: Store | None = None,
-                 notifier=None, mode: str = "paper"):
+                 notifier=None, mode: str = "paper", batch_mode: bool = False):
         self.symbol = symbol
         self.broker = broker
         self.risk = risk
@@ -28,11 +28,27 @@ class Engine:
         self.mode = mode
         self.position: Position | None = None
         self.bar_index = 0
+        self._dirty: bool = False
+        self._batch_mode: bool = batch_mode
+
+    def _mark_dirty(self) -> None:
+        self._dirty = True
 
     # ---- persistence -----------------------------------------------------
-    def save(self) -> None:
+    def save(self, force: bool = False) -> None:
         """Persist position, risk state and (paper) balances in ONE transaction, so a
-        crash can never leave a recorded position without the matching balances."""
+        crash can never leave a recorded position without the matching balances.
+
+        When force=False (default), the write is skipped unless state has changed
+        since the last successful save, avoiding redundant SQLite writes.
+
+        In batch_mode (backtest), per-bar saves are skipped entirely; call save(force=True)
+        once at the end to persist the final state.
+        """
+        if self._batch_mode and not force:
+            return
+        if not self._dirty and not force:
+            return
         items = {
             "position": asdict(self.position) if self.position else None,
             "risk": self.risk.state_dict(),
@@ -41,6 +57,7 @@ class Engine:
         if hasattr(self.broker, "snapshot"):
             items["paper_balances"] = self.broker.snapshot()
         self.store.put_many(items)
+        self._dirty = False
 
     def load(self) -> None:
         pos = self.store.get("position")
@@ -56,6 +73,7 @@ class Engine:
         if self.store.get(RESUME_KEY) is None:
             return
         prev = self.risk.resume(self.equity(price) if price else None)
+        self._mark_dirty()
         self.save()
         # delete only AFTER the new state is durable: a crash in between must not
         # silently lose the operator's resume request
@@ -100,6 +118,7 @@ class Engine:
                                  stop=stop, take=take, peak=fill.price, opened_at=ts,
                                  pending_order_id=None)
         self.risk.record_entry()
+        self._mark_dirty()
         self.save()  # persist the position before anything else can fail
         self.store.log_trade(ts=ts, mode=self.mode, symbol=self.symbol, side="buy", qty=fill.qty,
                              price=fill.price, quote=fill.quote, reason="signal", pnl_quote=None,
@@ -111,6 +130,7 @@ class Engine:
         pos = self.position
         self.position = None
         self.risk.record_exit(self.bar_index)
+        self._mark_dirty()
         self.save()
         self.store.log_trade(ts=ts, mode=self.mode, symbol=self.symbol, side="abandon", qty=pos.qty,
                              price=None, quote=None, reason=reason, pnl_quote=None, order_id="")
@@ -122,6 +142,7 @@ class Engine:
         pnl = fill.quote - pos.cost_quote * (fill.qty / pos.qty if pos.qty else 1)
         self.position = None
         self.risk.record_exit(self.bar_index)
+        self._mark_dirty()
         self.save()
         self.store.log_trade(ts=ts, mode=self.mode, symbol=self.symbol, side="sell", qty=fill.qty,
                              price=fill.price, quote=fill.quote, reason=reason, pnl_quote=pnl,
@@ -149,6 +170,7 @@ class Engine:
             # reconciles via the client id and books the real fill. Block entries
             # until a human checks.
             pos.pending_order_id = exc.client_order_id
+            self._mark_dirty()
             self.save()
             return self._halt(f"sell order state unknown ({reason}): {exc}")
         except BrokerError as exc:
@@ -180,6 +202,7 @@ class Engine:
         old_stop = pos.stop
         self.risk.update_trailing(pos, high)
         if pos.stop != old_stop:
+            self._mark_dirty()
             self.save()  # a raised trailing stop must survive a restart
             # the new stop may already have been breached by this very bar's low
             if low <= pos.stop:
@@ -192,6 +215,7 @@ class Engine:
         risk/equity checks so the backtest's kill switches and equity curve agree.
         """
         self.bar_index += 1
+        self._mark_dirty()
         equity = self.equity(mark_price if mark_price is not None else price)
         self.risk.roll_day(ts[:10], equity)
         was_halted = self.risk.state.halted_reason

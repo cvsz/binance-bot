@@ -35,7 +35,8 @@ def run_backtest(df: pd.DataFrame, strategy: Strategy, risk_cfg: RiskConfig, sym
         raise ValueError(f"need more than {strategy.warmup + 2} candles for this strategy, got {len(df)}")
     signals = strategy.signals(df)
     broker = PaperBroker(starting_quote, fee_pct, slippage_pct)
-    engine = Engine(symbol, broker, RiskManager(risk_cfg), Store(), mode="backtest")
+    engine = Engine(symbol, broker, RiskManager(risk_cfg), Store(), mode="backtest",
+                    batch_mode=True)
 
     equity = []
     pending = HOLD
@@ -45,6 +46,7 @@ def run_backtest(df: pd.DataFrame, strategy: Strategy, risk_cfg: RiskConfig, sym
         engine.on_price(ts, bar.low, bar.high, open_=bar.open)
         pending = int(signals.loc[idx])
         equity.append(engine.equity(bar.close))
+    engine.save(force=True)  # persist final state once, not every bar
 
     eq = pd.Series(equity, index=df.index, name="equity")
     trades = engine.store.trades()

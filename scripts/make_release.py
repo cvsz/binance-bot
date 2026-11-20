@@ -14,8 +14,6 @@ Excludes secrets, databases, logs, caches, and git internals.
 """
 from __future__ import annotations
 
-import shutil
-import sys
 import zipfile
 from datetime import date
 from pathlib import Path
@@ -34,11 +32,7 @@ def is_excluded(path: Path, root: Path) -> bool:
         return True
     if path.name == ".gitignore":
         return True
-    if path.suffix.lower() in EXCLUDE_SUFFIXES:
-        return True
-    if path.name in {".dockerignore", ".gitleaks.toml"}:
-        return True
-    return False
+    return path.name in {".dockerignore", ".gitleaks.toml"}
 
 
 def main() -> int:

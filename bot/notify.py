@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 import urllib.request
 from collections import OrderedDict
@@ -15,13 +16,18 @@ MAX_TRACKED_MESSAGES = 500
 
 class Notifier:
     """Sends Telegram messages. Identical messages are suppressed for `dedupe_seconds`
-    so a recurring error cannot flood the chat (they are still logged)."""
+    so a recurring error cannot flood the chat (they are still logged).
+
+    Sends are fire-and-forget on a daemon thread so a slow or unreachable Telegram
+    endpoint never blocks the trading loop.
+    """
 
     def __init__(self, token: str | None = None, chat_id: str | None = None, dedupe_seconds: float = 900):
         self.token = token if token is not None else os.getenv("TELEGRAM_BOT_TOKEN")
         self.chat_id = chat_id if chat_id is not None else os.getenv("TELEGRAM_CHAT_ID")
         self.dedupe_seconds = dedupe_seconds
         self._last_sent: OrderedDict[str, float] = OrderedDict()
+        self._send_lock = threading.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -48,6 +54,10 @@ class Notifier:
         log.info("NOTIFY %s", text)
         if not self.enabled or self._suppressed(text):
             return
+        thread = threading.Thread(target=self._send_async, args=(text,), daemon=True)
+        thread.start()
+
+    def _send_async(self, text: str) -> None:
         try:
             req = urllib.request.Request(  # noqa: S310 - fixed https URL
                 f"{API}/bot{self.token}/sendMessage",
