@@ -79,6 +79,32 @@ python run.py backtest --csv reports/public_BTCUSDT_15m.csv
 
 Delete the folder. Optionally remove `%USERPROFILE%\.binance-bot` if you created one. No registry changes are made.
 
+## 8. Professional Installer (Inno Setup)
+
+For a traditional Windows `.exe` installer with Start Menu shortcuts and
+Add/Remove Programs entry, compile `installer/setup-windows.iss` using
+[Inno Setup Compiler](https://jrsoftware.org/isinfo.php) (free, Windows only):
+
+```powershell
+# On Windows, after installing Inno Setup Compiler:
+iscc installer/setup-windows.iss
+```
+
+This produces `binance-bot-windows-setup-1.0.0.exe` in `reports/release/`,
+which includes:
+- Start Menu shortcut
+- Optional desktop icon
+- Uninstaller via Add/Remove Programs
+- Pre-install safety warning about real-money trading
+
+---
+
+## Safety
+
+- **Stop-loss is bot-side** — if this Windows machine sleeps or loses network, stops do **not** run on Binance.
+- **Dashboard binds to `127.0.0.1:8080` by default** — use SSH tunnel or Cloudflare Tunnel for remote access; do not expose directly to the internet.
+- **Never commit `.env`, `config.yaml`, or `data/*.db` to git.**
+
 ## Safety
 
 - Stop-loss is **bot-side** — if this Windows machine sleeps or loses network, stops do **not** run on Binance.

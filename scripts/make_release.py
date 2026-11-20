@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Build a Windows 11 release zip for the Binance Spot Trading Bot.
+"""Build Windows 11 release packages for the Binance Spot Trading Bot.
+
+Produces:
+  1. reports/release/binance-bot-windows-YYYYMMDD.zip  — full source zip
+  2. reports/release/binance-bot-windows-installer.zip — installer-ready package
+                                                           (includes installer scripts)
 
 Packages the project so a Windows user can run it with a local Python:
     unzip binance-bot-windows.zip
@@ -9,6 +14,9 @@ Packages the project so a Windows user can run it with a local Python:
     pip install -r requirements.txt -c constraints.txt
     cp .env.example .env   # then fill in your keys
     run.bat paper
+
+For a compiled .exe installer, compile installer/setup-windows.iss with
+Inno Setup Compiler on Windows.
 
 Excludes secrets, databases, logs, caches, and git internals.
 """
@@ -24,6 +32,14 @@ EXCLUDE_NAMES = {
 }
 EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".db", ".db-wal", ".db-shm", ".log"}
 
+INSTALLER_FILES = [
+    "bot", "run.py", "config.example.yaml", "requirements.txt",
+    "constraints.txt", "requirements-dev.txt", "run.bat",
+    "setup-windows.ps1", "README-WINDOWS.md", "README.md",
+    "AGENTS.md", "CHANGELOG.md", "pyproject.toml", "Makefile",
+    "docker-compose.yml", "Dockerfile", ".dockerignore",
+]
+
 
 def is_excluded(path: Path, root: Path) -> bool:
     rel = path.relative_to(root)
@@ -35,23 +51,38 @@ def is_excluded(path: Path, root: Path) -> bool:
     return path.name in {".dockerignore", ".gitleaks.toml"}
 
 
+def zip_files(files: list[Path], root: Path, out_zip: Path) -> None:
+    with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in sorted(files):
+            arc = p.relative_to(root).as_posix()
+            zf.write(p, arc)
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     out_dir = root / "reports" / "release"
     out_dir.mkdir(parents=True, exist_ok=True)
     today = date.today().strftime("%Y%m%d")
-    out_zip = out_dir / f"binance-bot-windows-{today}.zip"
 
-    files = [p for p in root.rglob("*") if p.is_file() and not is_excluded(p, root)]
-    files.sort()
+    # Full source zip (all non-secret files)
+    full_files = [
+        p for p in root.rglob("*")
+        if p.is_file() and not is_excluded(p, root)
+    ]
+    zip_files(full_files, root, out_dir / f"binance-bot-windows-{today}.zip")
 
-    with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in files:
-            arc = p.relative_to(root).as_posix()
-            zf.write(p, arc)
+    # Installer package (curated subset + installer scripts)
+    installer_files = [
+        root / f for f in INSTALLER_FILES if (root / f).exists()
+    ] + [root / "installer" / "install-windows.ps1",
+         root / "installer" / "setup-windows.iss"]
+    zip_files(installer_files, root,
+              out_dir / f"binance-bot-windows-installer-{today}.zip")
 
-    print(f"release: {out_zip} ({len(files)} files)")
+    print(f"release: {out_dir / f'binance-bot-windows-{today}.zip'}")
+    print(f"release: {out_dir / f'binance-bot-windows-installer-{today}.zip'}")
     print("next: copy to Windows, unzip, run setup-windows.ps1 or run.bat")
+    print("      For compiled .exe: compile installer/setup-windows.iss with Inno Setup")
     return 0
 
 
