@@ -53,11 +53,36 @@ class THExchange:
         self._clock_offset_ms = clock_offset_ms
         self._markets_override = markets
         self._loaded = False
+        self._clock_offset_ms = self._sync_clock_offset()
 
     # ---- credential / sandbox gates -------------------------------------
     def set_sandbox_mode(self, enabled: bool) -> None:
         if enabled:
             raise PermissionError("Binance TH has no testnet/sandbox: every order uses REAL MONEY")
+
+    def _server_time(self) -> int:
+        """Fetch server time in ms from TH exchange. Raises on failure."""
+        payload = self._request_unsigned("GET", "/time")
+        return int(payload["serverTime"])
+
+    def _request_unsigned(self, method: str, path: str, params: dict | None = None) -> Any:
+        """Unsigned request (no signature, no API key header)."""
+        values = {k: v for k, v in (params or {}).items() if v is not None}
+        query = urllib.parse.urlencode(values)
+        url = f"{self.base_url}{API_PREFIX}{path}" + (f"?{query}" if query else "")
+        request = urllib.request.Request(url, headers={"User-Agent": "binance-bot-th/1.0"})  # noqa: S310
+        with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
+            return json.loads(response.read().decode("utf-8"))
+
+    def _sync_clock_offset(self) -> int:
+        """Compute server_ms - local_ms so timestamps match Binance TH server time."""
+        try:
+            server_ms = self._server_time()
+            local_ms = int(time.time() * 1000)
+            return server_ms - local_ms
+        except Exception as exc:  # keep running; signed requests will surface their own error
+            log.warning("could not sync TH server time (%s); using offset 0", exc)
+            return 0
 
     def check_required_credentials(self) -> None:
         if not self.apiKey or not self.secret:

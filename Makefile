@@ -334,6 +334,14 @@ dps: ## docker compose status incl. healthchecks
 dconfig: ## Validate docker-compose.yml
 	$(COMPOSE) config -q && echo "compose: valid"
 
+##@ Release
+.PHONY: release-windows
+release-windows: $(STAMP) ## Build Windows 11 release zip into reports/release/
+	$(PY) scripts/make_release.py
+
+.PHONY: release
+release: release-windows ## Alias for release-windows
+
 ##@ Housekeeping
 .PHONY: clean
 clean: ## Remove caches (keeps venv, data, backups, reports, logs)
