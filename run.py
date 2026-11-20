@@ -17,12 +17,28 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from bot.config import check_live_allowed, load_config
+
+
+class JsonFormatter(logging.Formatter):
+    """JSON log formatter for production log aggregation."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, datefmt="%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload)
 
 
 def cmd_backtest(cfg, args) -> int:
@@ -192,8 +208,12 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
 
     load_dotenv()
+    log_format = os.getenv("LOG_FORMAT", "text").lower()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    if log_format == "json":
+        for handler in logging.getLogger().handlers:
+            handler.setFormatter(JsonFormatter())
     try:
         cfg = load_config(args.config)
     except (OSError, ValueError, TypeError) as exc:
