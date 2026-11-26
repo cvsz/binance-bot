@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ccxt
 import logging
 from dataclasses import asdict
 
@@ -138,6 +139,37 @@ class Engine:
         self.risk.record_entry()
         self._mark_dirty()
         self.save()  # persist the position before anything else can fail
+
+        # ---- server-side stop-loss / take-profit (OCO) for live mode ----
+        if self.broker.live and hasattr(self.broker, "create_stop_loss_order"):
+            try:
+                # Server-side stop-loss: triggers when price hits stop
+                stop_order = self.broker.create_stop_loss_order(
+                    side="SELL",
+                    quantity=self.position.qty,
+                    stop_price=stop,
+                    limit_price=None,  # market stop-loss
+                )
+                self.position.stop_order_id = str(stop_order.get("id", "")) if stop_order else None
+            except (BrokerError, OrderStateUnknown) as exc:
+                log.warning("%s server-side stop-loss failed: %s", ts, exc)
+                self.notifier.send(f"[{self.mode}] ⚠️ server-side stop-loss failed: {exc}")
+
+            # Server-side take-profit: triggers when price hits target
+            if take is not None:
+                try:
+                    take_order = self.broker.create_take_profit_order(
+                        side="SELL",
+                        quantity=self.position.qty,
+                        take_price=take,
+                        limit_price=None,  # market take-profit
+                    )
+                    self.position.take_order_id = str(take_order.get("id", "")) if take_order else None
+                except (BrokerError, OrderStateUnknown) as exc:
+                    log.warning("%s server-side take-profit failed: %s", ts, exc)
+                    self.notifier.send(f"[{self.mode}] ⚠️ server-side take-profit failed: {exc}")
+                self._mark_dirty()
+                self.save()
         self.store.log_trade(
             ts=ts,
             mode=self.mode,
@@ -230,6 +262,120 @@ class Engine:
             self.notifier.send(f"[{self.mode}] ⚠️ SELL FAILED {self.symbol}: {exc}")
             return
         self._record_exit(ts, fill, pos, reason)
+        # Cancel any remaining server-side stop-loss / take-profit orders
+        if self.broker.live and pos:
+            self._cancel_server_side_orders(pos)
+
+    def _cancel_server_side_orders(self, pos: Position) -> None:
+        """Cancel any remaining server-side stop-loss / take-profit orders."""
+        if not self.broker.live or not hasattr(self.broker, "cancel_order"):
+            return
+        if pos.stop_order_id:
+            try:
+                self.broker.cancel_order(pos.stop_order_id)
+                log.info("%s canceled stop-loss order %s", self.symbol, pos.stop_order_id)
+            except (ccxt.OrderNotFound, BrokerError) as exc:
+                log.warning("%s stop-loss order %s already gone: %s", self.symbol, pos.stop_order_id, exc)
+            except ccxt.NetworkError as exc:
+                log.warning("%s stop-loss order %s cancel network error: %s", self.symbol, pos.stop_order_id, exc)
+        if pos.take_order_id:
+            try:
+                self.broker.cancel_order(pos.take_order_id)
+                log.info("%s canceled take-profit order %s", self.symbol, pos.take_order_id)
+            except (ccxt.OrderNotFound, BrokerError) as exc:
+                log.warning("%s take-profit order %s already gone: %s", self.symbol, pos.take_order_id, exc)
+            except ccxt.NetworkError as exc:
+                log.warning("%s take-profit order %s cancel network error: %s", self.symbol, pos.take_order_id, exc)
+
+    def _check_server_side_orders(self, ts: str, pos: Position) -> None:
+        """Check server-side stop-loss / take-profit orders for OCO reconciliation.
+
+        When the exchange executes one side (stop-loss or take-profit),
+        cancel the other side to prevent double-execution.
+        """
+        try:
+            if pos.stop_order_id:
+                order = self.broker.ex.fetch_order("", self.symbol, {"id": pos.stop_order_id})
+                if order.get("status") in ("filled", "canceled", "expired", "rejected"):
+                    # Stop-loss was executed or canceled - cancel take-profit
+                    if pos.take_order_id:
+                        try:
+                            self.broker.cancel_order(pos.take_order_id)
+                            log.info(
+                                "%s stop-loss executed/canceled - canceled take-profit order %s",
+                                ts,
+                                pos.take_order_id,
+                            )
+                            pos.take_order_id = None
+                            self._mark_dirty()
+                            self.save()
+                        except ccxt.OrderNotFound:
+                            pos.take_order_id = None
+                            self._mark_dirty()
+                            self.save()
+                        except ccxt.NetworkError as exc:
+                            log.warning(
+                                "%s take-profit order %s cancel network error: %s",
+                                ts,
+                                pos.take_order_id,
+                                exc,
+                            )
+                    # Position was closed by stop-loss - exit the position
+                    if order.get("status") == "filled":
+                        log.info(
+                            "%s server-side stop-loss order %s executed at price %s",
+                            ts,
+                            pos.stop_order_id,
+                            order.get("average") or order.get("price"),
+                        )
+                        self._exit(ts, float(order.get("average") or pos.stop), "stop_loss")
+                        return
+
+            if pos.take_order_id:
+                order = self.broker.ex.fetch_order("", self.symbol, {"id": pos.take_order_id})
+                if order.get("status") in ("filled", "canceled", "expired", "rejected"):
+                    # Take-profit was executed or canceled - cancel stop-loss
+                    if pos.stop_order_id:
+                        try:
+                            self.broker.cancel_order(pos.stop_order_id)
+                            log.info(
+                                "%s take-profit executed/canceled - canceled stop-loss order %s",
+                                ts,
+                                pos.stop_order_id,
+                            )
+                            pos.stop_order_id = None
+                            self._mark_dirty()
+                            self.save()
+                        except ccxt.OrderNotFound:
+                            pos.stop_order_id = None
+                            self._mark_dirty()
+                            self.save()
+                        except ccxt.NetworkError as exc:
+                            log.warning(
+                                "%s stop-loss order %s cancel network error: %s",
+                                ts,
+                                pos.stop_order_id,
+                                exc,
+                            )
+                    # Position was closed by take-profit - exit the position
+                    if order.get("status") == "filled":
+                        log.info(
+                            "%s server-side take-profit order %s executed at price %s",
+                            ts,
+                            pos.take_order_id,
+                            order.get("average") or order.get("price"),
+                        )
+                        avg_price_raw = (
+                            float(order.get("average"))
+                            if order.get("average") is not None
+                            else (float(order.get("price")) if order.get("price") is not None else pos.take)
+                        )
+                        self._exit(ts, float(avg_price_raw or pos.take or 0.0), "take_profit")
+                        return
+        except ccxt.NetworkError as exc:
+            log.warning("%s server-side order check network error: %s", ts, exc)
+        except ccxt.OrderNotFound as exc:
+            log.warning("%s server-side order not found: %s", ts, exc)
 
     # ---- event handlers --------------------------------------------------
     def on_price(self, ts: str, low: float, high: float, open_: float | None = None) -> None:
@@ -242,6 +388,17 @@ class Engine:
         pos = self.position
         if not pos:
             return
+
+        # ---- server-side stop-loss / take-profit OCO check ----
+        # When the exchange executes a server-side stop-loss or take-profit,
+        # cancel the other side to prevent double-execution.
+        if self.broker.live and (pos.stop_order_id or pos.take_order_id):
+            self._check_server_side_orders(ts, pos)
+            # Re-check position after server-side reconciliation
+            pos = self.position
+            if not pos:
+                return
+
         if open_ is not None and open_ <= pos.stop:
             return self._exit(ts, open_, "stop_gap")
         if low <= pos.stop:

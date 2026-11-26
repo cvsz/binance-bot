@@ -112,6 +112,9 @@ class Position:
     peak: float
     opened_at: str
     pending_order_id: str | None = None  # client id of a sell whose result is unconfirmed
+    # Server-side order IDs for exchange-managed stop-loss / take-profit (OCO)
+    stop_order_id: str | None = None  # server-side stop-loss order id
+    take_order_id: str | None = None  # server-side take-profit order id
 
 
 @dataclass
