@@ -15,6 +15,7 @@ from .config import AppConfig, api_keys, check_live_allowed, db_path_for
 from .data import drop_open_candle, fetch_recent, to_frame
 from .engine import Engine
 from .errors import FATAL_ERRORS, ErrorCategory, classify_error, retry_after
+from .limits import MAX_BACKOFF_SECONDS
 from .notify import Notifier
 from .risk import RiskManager
 from .store import Store
@@ -23,7 +24,7 @@ from .venues import get_venue
 
 log = logging.getLogger(__name__)
 
-MAX_BACKOFF = 600
+MAX_BACKOFF = MAX_BACKOFF_SECONDS
 # FATAL_ERRORS is imported from bot.errors; auth-type errors stop the bot instead
 # of hammering the API (kept as a module attribute for existing callers/tests).
 
