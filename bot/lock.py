@@ -67,9 +67,7 @@ class Lock:
                 )
             stuck = _break_stale(path_str, holder.get("token", ""), me_pid, me_host)
             if stuck:
-                raise LockError(
-                    f"lock stale but takeover blocked by {stuck}; remove it by hand"
-                )
+                raise LockError(f"lock stale but takeover blocked by {stuck}; remove it by hand")
         raise LockError(f"could not take lock at {path_str}")
 
     def release(self) -> None:

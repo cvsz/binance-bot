@@ -76,9 +76,7 @@ class LogWriter:
         self.repaired_bytes = repaired_bytes
 
     @classmethod
-    async def open(
-        cls, path: str | Path, header=None
-    ):  # pragma: no cover - async helper
+    async def open(cls, path: str | Path, header=None):  # pragma: no cover - async helper
         """Open ``path`` for appending, creating it private to the user.
 
         A new file starts with ``header``; an existing one is made private

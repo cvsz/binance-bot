@@ -73,11 +73,7 @@ def recover(attempt: Attempt, tried: Tried, allowed: Allowed) -> dict:
         return {ACTION: ACTION_FATAL}
 
     blank = not attempt.text.strip() and attempt.calls == 0
-    cut = (
-        attempt.finish == "length"
-        and attempt.calls == 0
-        and (blank or allowed.unseen)
-    )
+    cut = attempt.finish == "length" and attempt.calls == 0 and (blank or allowed.unseen)
     if not blank and not cut:
         return {ACTION: ACTION_DONE}
     if cut:
@@ -115,6 +111,7 @@ async def under_policy(
     compact or the pause was cancelled.
     """
     if sleep is None:
+
         async def sleep(ms, sig=None):
             await asyncio.sleep(ms / 1000.0)
 
