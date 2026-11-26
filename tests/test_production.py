@@ -497,6 +497,12 @@ def test_notifier_send_suppresses_duplicate_http(monkeypatch):
     n = Notifier(token="t", chat_id="c")
     n.send("same message")
     n.send("same message")
+    # Wait for the daemon thread to complete the HTTP call
+    import time as _time
+
+    deadline = _time.monotonic() + 5.0
+    while len(calls) < 1 and _time.monotonic() < deadline:
+        _time.sleep(0.01)
     assert len(calls) == 1
 
 
