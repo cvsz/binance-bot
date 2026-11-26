@@ -312,3 +312,156 @@ class LiveBroker:
         log.info("LIVE SELL %s qty=%.8f avg=%.8f received=%.4f", self.symbol, sold, avg, received)
         self.invalidate_balance_cache()
         return Fill("sell", sold, float(avg), received, str(order.get("id", "")))
+
+    # ---- server-side stop-loss / take-profit (OCO) ---------------------------------
+    def create_stop_loss_order(
+        self,
+        side: str,
+        quantity: float,
+        stop_price: float,
+        limit_price: float | None = None,
+    ) -> dict:
+        """Create a server-side stop-loss order.
+
+        Uses Binance STOP_LOSS (market) or STOP_LOSS_LIMIT order type.
+        When stop_price is reached, Binance automatically places the order.
+
+        Args:
+            side: "BUY" or "SELL"
+            quantity: quantity in base asset
+            stop_price: trigger price
+            limit_price: limit price for STOP_LOSS_LIMIT (None = market stop)
+
+        Returns the order dict from the exchange.
+        """
+        order_type = "STOP_LOSS_LIMIT" if limit_price else "STOP_LOSS"
+        price_precision = getattr(self.ex, "price_to_precision", None)
+        create_order_fn = getattr(self.ex, "create_order", None)
+        if create_order_fn is None:
+            raise BrokerError("exchange does not support server-side orders")
+        stop_price_str = price_precision(self.symbol, stop_price) if price_precision else str(stop_price)
+        params: dict = {
+            "symbol": self.symbol,
+            "side": side,
+            "type": order_type,
+            "quantity": self.ex.amount_to_precision(self.symbol, quantity),
+            "stopPrice": stop_price_str,
+        }
+        if limit_price is not None:
+            limit_price_str = price_precision(self.symbol, limit_price) if price_precision else str(limit_price)
+            params["price"] = limit_price_str
+            params["timeInForce"] = "GTC"
+
+        order = self._submit_server_side("stop-loss", lambda p: self.ex.create_order(**{**params, **p}))
+        log.info(
+            "LIVE STOP-LOSS %s side=%s qty=%.8f stop=%.8f limit=%s",
+            self.symbol,
+            side,
+            quantity,
+            stop_price,
+            limit_price,
+        )
+        return order
+
+    def create_take_profit_order(
+        self,
+        side: str,
+        quantity: float,
+        take_price: float,
+        limit_price: float | None = None,
+    ) -> dict:
+        """Create a server-side take-profit order.
+
+        Uses Binance TAKE_PROFIT (market) or TAKE_PROFIT_LIMIT order type.
+        When take_price is reached, Binance automatically places the order.
+
+        Args:
+            side: "BUY" or "SELL"
+            quantity: quantity in base asset
+            take_price: trigger price
+            limit_price: limit price for TAKE_PROFIT_LIMIT (None = market take-profit)
+
+        Returns the order dict from the exchange.
+        """
+        order_type = "TAKE_PROFIT_LIMIT" if limit_price else "TAKE_PROFIT"
+        price_precision = getattr(self.ex, "price_to_precision", None)
+        create_order_fn = getattr(self.ex, "create_order", None)
+        if create_order_fn is None:
+            raise BrokerError("exchange does not support server-side orders")
+        take_price_str = price_precision(self.symbol, take_price) if price_precision else str(take_price)
+        params: dict = {
+            "symbol": self.symbol,
+            "side": side,
+            "type": order_type,
+            "quantity": self.ex.amount_to_precision(self.symbol, quantity),
+            "stopPrice": take_price_str,
+        }
+        if limit_price is not None:
+            limit_price_str = price_precision(self.symbol, limit_price) if price_precision else str(limit_price)
+            params["price"] = limit_price_str
+            params["timeInForce"] = "GTC"
+
+        order = self._submit_server_side("take-profit", lambda p: self.ex.create_order(**{**params, **p}))
+        log.info(
+            "LIVE TAKE-PROFIT %s side=%s qty=%.8f take=%.8f limit=%s",
+            self.symbol,
+            side,
+            quantity,
+            take_price,
+            limit_price,
+        )
+        return order
+
+    def cancel_order(self, order_id: str) -> dict:
+        """Cancel an order by order id."""
+        try:
+            result = self.ex.cancel_order(self.symbol, order_id)
+            log.info("LIVE CANCEL ORDER %s order_id=%s", self.symbol, order_id)
+            return result  # type: ignore[no-any-return]
+        except ccxt.OrderNotFound:
+            log.warning("LIVE CANCEL ORDER %s order_id=%s not found", self.symbol, order_id)
+            raise
+        except ccxt.NetworkError as exc:
+            log.warning("LIVE CANCEL ORDER %s order_id=%s network error: %s", self.symbol, order_id, exc)
+            raise
+
+    def cancel_all_orders(self) -> list[dict]:
+        """Cancel all open orders for this symbol."""
+        try:
+            result = self.ex.cancel_all_orders(self.symbol)
+            log.info("LIVE CANCEL ALL ORDERS %s canceled=%d orders", self.symbol, len(result))
+            return result  # type: ignore[no-any-return]
+        except ccxt.NetworkError as exc:
+            log.warning("LIVE CANCEL ALL ORDERS %s network error: %s", self.symbol, exc)
+            raise
+
+    def _submit_server_side(self, side: str, create) -> dict:
+        """Submit a server-side order; on network failure, look it up by client order id."""
+        cid = self._client_id(side)
+        try:
+            return create({"newClientOrderId": cid})  # type: ignore[no-any-return]
+        except DEFINITE_REJECTIONS as exc:
+            if isinstance(exc, FATAL_ERRORS):
+                raise
+            raise BrokerError(f"{side} server-side order rejected: {exc}") from exc
+        except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
+            log.warning("%s server-side order %s submission failed (%s); looking it up", side, cid, exc)
+            for attempt in range(self.lookup_attempts):
+                time.sleep(self.lookup_delay * (attempt + 1))
+                try:
+                    order = self.ex.fetch_order("", self.symbol, {"clientOrderId": cid})
+                    log.warning(
+                        "%s server-side order %s was placed despite error (status=%s)",
+                        side,
+                        cid,
+                        order.get("status"),
+                    )
+                    return order  # type: ignore[no-any-return]
+                except ccxt.OrderNotFound:
+                    raise BrokerError(f"{side} server-side order not placed: {exc}") from exc
+                except ccxt.NetworkError:
+                    continue
+            raise OrderStateUnknown(
+                f"{side} server-side order {cid} submitted but state unknown after {self.lookup_attempts} lookups",
+                client_order_id=cid,
+            ) from exc
