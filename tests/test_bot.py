@@ -1,5 +1,3 @@
-import os
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -30,6 +28,7 @@ def synthetic(n=3000, seed=7, start=30000.0):
 
 
 # ---- indicators / strategies ---------------------------------------------
+
 
 def test_rsi_bounds_and_flat():
     s = synthetic()["close"]
@@ -63,6 +62,7 @@ def test_build_strategy_validation():
 
 # ---- risk ------------------------------------------------------------------
 
+
 def test_position_sizing_capped():
     rm = RiskManager(RiskConfig(risk_per_trade_pct=1, stop_loss_pct=2, max_position_pct=25))
     # 1% risk / 2% stop = 50% of equity, capped at 25%
@@ -87,10 +87,11 @@ def test_daily_loss_halt_and_reset():
 
 # ---- broker / engine -------------------------------------------------------
 
+
 def test_paper_broker_round_trip_costs():
     b = PaperBroker(1000, fee_pct=0.1, slippage_pct=0.05)
     f = b.buy_quote(500, 100)
-    s = b.sell_qty(f.qty, 100)
+    b.sell_qty(f.qty, 100)
     assert b.base == 0
     assert 998 < b.quote < 1000  # paid fees+slippage both ways
 
@@ -119,7 +120,8 @@ def test_gap_below_stop_fills_at_open():
 def test_take_profit_and_trailing():
     e = make_engine(stop_loss_pct=2, take_profit_pct=None, trailing_stop_pct=1)
     e.on_signal("2025-01-01 00:00", BUY, 100)
-    e.on_price("t", low=100, high=110)
+    # a bar whose low is ABOVE the raised stop must keep the position
+    e.on_price("t", low=109.5, high=110)
     assert e.position.stop == pytest.approx(108.9)
     e.on_price("t", low=108.5, high=109)
     assert e.position is None and e.store.trades()[-1]["reason"] == "trailing_stop"
@@ -141,6 +143,7 @@ def test_state_persists_across_restart(tmp_path):
 
 
 # ---- backtest --------------------------------------------------------------
+
 
 def test_backtest_end_to_end():
     df = synthetic()
@@ -168,9 +171,15 @@ def test_drop_open_candle():
 
 # ---- safety gates ------------------------------------------------------------
 
+
 def test_live_gates(monkeypatch):
-    for k in ("BINANCE_API_KEY", "BINANCE_API_SECRET", "BINANCE_TESTNET_API_KEY",
-              "BINANCE_TESTNET_API_SECRET", REAL_MONEY_ENV):
+    for k in (
+        "BINANCE_API_KEY",
+        "BINANCE_API_SECRET",
+        "BINANCE_TESTNET_API_KEY",
+        "BINANCE_TESTNET_API_SECRET",
+        REAL_MONEY_ENV,
+    ):
         monkeypatch.delenv(k, raising=False)
     with pytest.raises(PermissionError):
         check_live_allowed(AppConfig(testnet=True), False)
@@ -182,8 +191,8 @@ def test_live_gates(monkeypatch):
     monkeypatch.setenv("BINANCE_API_KEY", "k")
     monkeypatch.setenv("BINANCE_API_SECRET", "s")
     with pytest.raises(PermissionError):
-        check_live_allowed(real, False)          # missing --real-money
+        check_live_allowed(real, False)  # missing --real-money
     with pytest.raises(PermissionError):
-        check_live_allowed(real, True)           # missing env confirmation
+        check_live_allowed(real, True)  # missing env confirmation
     monkeypatch.setenv(REAL_MONEY_ENV, REAL_MONEY_VALUE)
     check_live_allowed(real, True)

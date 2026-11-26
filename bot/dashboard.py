@@ -3,13 +3,15 @@
 It only reads the bot's SQLite database, so it can run in a separate process or
 container and can never place or cancel orders.
 """
+
 from __future__ import annotations
 
 import hmac
 import json
 import logging
 import os
-from datetime import datetime, timezone
+import re
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -18,6 +20,15 @@ from .store import Store
 
 log = logging.getLogger(__name__)
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+def heartbeat_status(hb: dict) -> tuple[str, float | None]:
+    """('online'|'stale'|'offline', age in seconds) from a heartbeat record."""
+    if not hb.get("ts"):
+        return "offline", None
+    age = (datetime.now(UTC) - datetime.fromisoformat(hb["ts"])).total_seconds()
+    poll = hb.get("poll_seconds") or 30
+    return ("online" if age < max(3 * poll, 90) else "stale"), age
 
 
 def build_summary(store: Store) -> dict:
@@ -30,11 +41,7 @@ def build_summary(store: Store) -> dict:
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p <= 0]
 
-    age = None
-    if hb.get("ts"):
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(hb["ts"])).total_seconds()
-    poll = hb.get("poll_seconds") or 30
-    status = "offline" if age is None else ("online" if age < max(3 * poll, 90) else "stale")
+    status, age = heartbeat_status(hb)
 
     price = hb.get("price")
     if pos and price:
@@ -76,14 +83,20 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
         if not path or not path.exists():
             return None
         if mode not in stores:
-            stores[mode] = Store(path)
+            stores[mode] = Store(path, read_only=True)  # dashboard must never write
         return stores[mode]
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "BotDashboard/1.0"
 
+        def log_request(self, code="-", size="-"):
+            # BaseHTTPRequestHandler logs the whole request line, which contains
+            # ?token=<DASHBOARD_TOKEN>. Log only the path.
+            log.debug("%s %s %s", self.address_string(), code, urlparse(self.path).path)
+
         def log_message(self, fmt, *args):
-            log.debug("%s %s", self.address_string(), fmt % args)
+            message = re.sub(r"token=[^&\s]+", "token=<redacted>", fmt % args)
+            log.debug("%s %s", self.address_string(), message)
 
         def _send(self, code: int, body: bytes, ctype: str) -> None:
             self.send_response(code)
@@ -93,9 +106,11 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Content-Security-Policy",
-                             "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                             "style-src 'self' 'unsafe-inline'; connect-src 'self'")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; connect-src 'self'",
+            )
             self.end_headers()
             self.wfile.write(body)
 
@@ -108,11 +123,85 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
             supplied = self.headers.get("X-Dashboard-Token") or (qs.get("token") or [""])[0]
             return hmac.compare_digest(supplied.encode(), token.encode())
 
+        def _metrics(self, store: Store) -> str:
+            """Prometheus-compatible text exposition format.
+
+            Reads from the store (source of truth) so no mutable counter state is
+            needed; safe to expose on the read-only dashboard.
+            """
+            hb = store.get("heartbeat") or {}
+            pos = store.get("position")
+            trades = store.trades(limit=10000)
+            sells = [t for t in trades if t["side"] == "sell" and t["pnl_quote"] is not None]
+            pnls = [t["pnl_quote"] for t in sells]
+            wins = [p for p in pnls if p > 0]
+            mode = hb.get("mode", "unknown")
+            symbol = hb.get("symbol", "unknown")
+            strategy = hb.get("strategy", "unknown")
+            lines = [
+                "# HELP bot_info Bot information",
+                "# TYPE bot_info gauge",
+                f'bot_info{{mode="{mode}",symbol="{symbol}",strategy="{strategy}"}} 1',
+                "",
+                "# HELP bot_heartbeat_age_seconds Age of the last heartbeat in seconds",
+                "# TYPE bot_heartbeat_age_seconds gauge",
+            ]
+            age = hb.get("heartbeat_age_s")
+            if age is not None:
+                lines.append(f"bot_heartbeat_age_seconds {age}")
+            lines += [
+                "",
+                "# HELP bot_equity Current equity in quote currency",
+                "# TYPE bot_equity gauge",
+            ]
+            equity = hb.get("equity")
+            if equity is not None:
+                lines.append(f"bot_equity {equity}")
+            lines += [
+                "",
+                "# HELP bot_position_qty Position quantity in base currency",
+                "# TYPE bot_position_qty gauge",
+            ]
+            if pos:
+                lines.append(f'bot_position_qty{{symbol="{pos.get("symbol", "unknown")}"}} {pos.get("qty", 0)}')
+            else:
+                lines.append('bot_position_qty{symbol=""} 0')
+            lines += [
+                "",
+                "# HELP bot_trades_total Total closed trades",
+                "# TYPE bot_trades_total counter",
+                f"bot_trades_total {len(sells)}",
+                "",
+                "# HELP bot_trades_wins_total Total winning trades",
+                "# TYPE bot_trades_wins_total counter",
+                f"bot_trades_wins_total {len(wins)}",
+                "",
+                "# HELP bot_realized_pnl_total Total realized PnL in quote currency",
+                "# TYPE bot_realized_pnl_total counter",
+                f"bot_realized_pnl_total {sum(pnls) if pnls else 0}",
+            ]
+            return "\n".join(lines) + "\n"
+
         def do_GET(self):  # noqa: N802
             url = urlparse(self.path)
             qs = parse_qs(url.query)
             if url.path == "/healthz":
                 return self._json({"ok": True})
+            if url.path == "/metrics":
+                # Metrics are read-only observability; allow without token when no
+                # token is configured, otherwise require authorization.
+                if not token:
+                    store = store_for((qs.get("mode") or ["paper"])[0])
+                    if store is None:
+                        return self._json({"error": "no data yet"}, 404)
+                    return self._send(200, self._metrics(store).encode(), "text/plain; version=0.0.4; charset=utf-8")
+                if not self._authorized(qs):
+                    return self._json({"error": "unauthorized"}, 401)
+                mode = (qs.get("mode") or ["paper"])[0]
+                store = store_for(mode)
+                if store is None:
+                    return self._json({"error": f"no data for mode '{mode}' yet - start the bot first"}, 404)
+                return self._send(200, self._metrics(store).encode(), "text/plain; version=0.0.4; charset=utf-8")
             if not self._authorized(qs):
                 return self._json({"error": "unauthorized"}, 401)
             if url.path in ("/", "/index.html"):
@@ -127,7 +216,7 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
             if url.path == "/api/summary":
                 return self._json(build_summary(store))
             if url.path == "/api/trades":
-                return self._json(list(reversed(store.trades()[-200:])))
+                return self._json(list(reversed(store.trades(limit=200))))
             if url.path == "/api/equity":
                 return self._json(store.equity_series())
             return self._json({"error": "not found"}, 404)
@@ -135,13 +224,13 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
     return Handler
 
 
-def serve(db_paths: dict[str, Path], host: str = "127.0.0.1", port: int = 8080) -> None:
+def serve(db_paths: dict[str, Path], host: str = "0.0.0.0", port: int = 8080) -> None:  # noqa: S104 - intentional: Docker binds 0.0.0.0; DASHBOARD_TOKEN required for non-loopback
     token = os.getenv("DASHBOARD_TOKEN") or None
     if host not in LOOPBACK and not token:
         raise PermissionError("binding to a non-local address requires DASHBOARD_TOKEN to be set")
     httpd = ThreadingHTTPServer((host, port), make_handler(db_paths, token))
-    url = f"http://{'localhost' if host in LOOPBACK else host}:{port}/" + (f"?token=<DASHBOARD_TOKEN>" if token else "")
-    print(f"dashboard: {url}  (Ctrl+C to stop)")
+    url = f"http://{'localhost' if host in LOOPBACK else host}:{port}/" + ("?token=<DASHBOARD_TOKEN>" if token else "")
+    log.info("dashboard: %s  (Ctrl+C to stop)", url)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

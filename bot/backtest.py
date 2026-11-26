@@ -4,10 +4,12 @@ Execution model: a signal produced at the close of bar i is executed at the OPEN
 of bar i+1 (what a live bot can actually achieve). Stops/targets are checked
 intrabar against high/low, assuming the stop is hit first when both are touched.
 """
+
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import cast
 
 import pandas as pd
 
@@ -29,22 +31,34 @@ def _ts(idx) -> str:
     return pd.Timestamp(idx).strftime("%Y-%m-%d %H:%M")
 
 
-def run_backtest(df: pd.DataFrame, strategy: Strategy, risk_cfg: RiskConfig, symbol: str = "BTC/USDT",
-                 starting_quote: float = 1000.0, fee_pct: float = 0.1, slippage_pct: float = 0.05) -> BacktestResult:
+def run_backtest(
+    df: pd.DataFrame,
+    strategy: Strategy,
+    risk_cfg: RiskConfig,
+    symbol: str = "BTC/USDT",
+    starting_quote: float = 1000.0,
+    fee_pct: float = 0.1,
+    slippage_pct: float = 0.05,
+) -> BacktestResult:
     if len(df) <= strategy.warmup + 2:
         raise ValueError(f"need more than {strategy.warmup + 2} candles for this strategy, got {len(df)}")
     signals = strategy.signals(df)
     broker = PaperBroker(starting_quote, fee_pct, slippage_pct)
-    engine = Engine(symbol, broker, RiskManager(risk_cfg), Store(), mode="backtest")
+    engine = Engine(symbol, broker, RiskManager(risk_cfg), Store(), mode="backtest", batch_mode=True)
 
     equity = []
     pending = HOLD
-    for idx, bar in zip(df.index, df.itertuples(index=False)):
+    for idx, bar in zip(df.index, df.itertuples(index=False), strict=True):
         ts = _ts(idx)
-        engine.on_signal(ts, pending, bar.open)
-        engine.on_price(ts, bar.low, bar.high, open_=bar.open)
+        open_price = cast(float, bar.open)
+        high_price = cast(float, bar.high)
+        low_price = cast(float, bar.low)
+        close_price = cast(float, bar.close)
+        engine.on_signal(ts, pending, open_price, mark_price=close_price)
+        engine.on_price(ts, low_price, high_price, open_=open_price)
         pending = int(signals.loc[idx])
-        equity.append(engine.equity(bar.close))
+        equity.append(engine.equity(close_price))
+    engine.save(force=True)  # persist final state once, not every bar
 
     eq = pd.Series(equity, index=df.index, name="equity")
     trades = engine.store.trades()
@@ -79,4 +93,5 @@ def _bars_per_year(index: pd.Index) -> float:
     if len(index) < 2:
         return 365.0
     step = pd.Series(index).diff().median()
-    return pd.Timedelta(days=365) / step if step and step > pd.Timedelta(0) else 365.0
+    step_td = step if isinstance(step, pd.Timedelta) else pd.Timedelta(0)
+    return pd.Timedelta(days=365) / step_td if step_td and step_td > pd.Timedelta(0) else 365.0

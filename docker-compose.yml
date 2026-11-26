@@ -1,20 +1,42 @@
+# First run:  make up  (or: mkdir -p data && docker compose up -d --build)
+# Mode: BOT_MODE=paper|live (default paper) - `make up MODE=live` sets it
+# (create ./data yourself, otherwise Docker creates it as root and the bot cannot write)
 services:
   bot:
     build: .
-    command: ["paper"]          # เปลี่ยนเป็น ["live"] เมื่อพร้อม
+    command: ["${BOT_MODE:-paper}"]   # live with testnet:false still needs --real-money: not via compose
     env_file: .env
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "run.py", "health", "--mode", "${BOT_MODE:-paper}"]
+      interval: 60s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
 
   dashboard:
     build: .
     command: ["dashboard", "--host", "0.0.0.0", "--port", "8080"]
-    env_file: .env              # ต้องตั้ง DASHBOARD_TOKEN
+    # Never hand the whole .env (real API keys) to the network-facing container.
+    environment:
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}   # app refuses 0.0.0.0 bind when empty; make up also checks
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
     ports:
-      - "127.0.0.1:8080:8080"   # เปิดเฉพาะเครื่องตัวเอง
+      - "0.0.0.0:8080:8080"   # bind all interfaces; use SSH/Cloudflare tunnel for remote access
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://0.0.0.0:8080/healthz', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}

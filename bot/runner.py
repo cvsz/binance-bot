@@ -1,83 +1,230 @@
 """Long-running loop for paper and live trading."""
+
 from __future__ import annotations
 
 import logging
 import signal
 import time
+from datetime import UTC, datetime
 
+import ccxt
 import pandas as pd
 
 from .broker import LiveBroker, PaperBroker
-from .config import AppConfig, api_keys, db_path_for
-from .data import fetch_recent
+from .config import AppConfig, api_keys, check_live_allowed, db_path_for
+from .data import drop_open_candle, fetch_recent, to_frame
 from .engine import Engine
+from .errors import FATAL_ERRORS, ErrorCategory, classify_error, retry_after
 from .notify import Notifier
 from .risk import RiskManager
 from .store import Store
 from .strategies import build_strategy
+from .venues import get_venue
 
 log = logging.getLogger(__name__)
 
+MAX_BACKOFF = 600
+# FATAL_ERRORS is imported from bot.errors; auth-type errors stop the bot instead
+# of hammering the API (kept as a module attribute for existing callers/tests).
+
 
 def make_exchange(cfg: AppConfig, authenticated: bool):
-    import ccxt
+    venue = get_venue(cfg.exchange_name)
+    if venue.custom == "THExchange":
+        from .th_exchange import THExchange
 
-    params = {"enableRateLimit": True, "options": {"defaultType": "spot"}}
+        key, secret = api_keys(cfg.testnet, cfg.exchange_name) if authenticated else (None, None)
+        return THExchange(key, secret)
+    exchange_class = getattr(ccxt, venue.ccxt_id, None)
+    if exchange_class is None:
+        raise ValueError(f"ccxt has no exchange class {venue.ccxt_id!r} for venue {venue.id!r}")
+    params = {"enableRateLimit": True, "options": {"defaultType": "spot", "adjustForTimeDifference": True}}
     if authenticated:
-        key, secret = api_keys(cfg.testnet)
+        key, secret = api_keys(cfg.testnet, cfg.exchange_name)
         params.update(apiKey=key, secret=secret)
-    ex = ccxt.binance(params)
-    if authenticated and cfg.testnet:
+    ex = exchange_class(params)
+    if authenticated and cfg.testnet and venue.supports_testnet:
         ex.set_sandbox_mode(True)
     return ex
 
 
 class Runner:
-    def __init__(self, cfg: AppConfig, mode: str, exchange=None, broker=None, store: Store | None = None,
-                 notifier=None):
-        assert mode in ("paper", "live")
-        self.cfg, self.mode = cfg, mode
+    def __init__(
+        self,
+        cfg: AppConfig,
+        mode: str,
+        exchange=None,
+        broker=None,
+        store: Store | None = None,
+        notifier=None,
+        real_money: bool = False,
+    ):
+        if mode not in ("paper", "live"):
+            raise ValueError(f"mode must be 'paper' or 'live', got {mode!r}")
+        self.cfg, self.mode, self.real_money = cfg, mode, real_money
         self.ex = exchange or make_exchange(cfg, authenticated=(mode == "live"))
         self.strategy = build_strategy(cfg.strategy, cfg.strategy_params)
         self.store = store or Store(db_path_for(cfg, mode))
         if broker is None:
-            broker = LiveBroker(self.ex, cfg.symbol) if mode == "live" else PaperBroker(
-                cfg.paper_starting_quote, cfg.fee_pct, cfg.slippage_pct)
+            broker = (
+                LiveBroker(self.ex, cfg.symbol)
+                if mode == "live"
+                else PaperBroker(cfg.paper_starting_quote, cfg.fee_pct, cfg.slippage_pct)
+            )
         self.broker = broker
-        self.engine = Engine(cfg.symbol, broker, RiskManager(cfg.risk), self.store,
-                             notifier or Notifier(), mode=mode + ("-testnet" if mode == "live" and cfg.testnet else ""))
+        self.engine = Engine(
+            cfg.symbol,
+            broker,
+            RiskManager(cfg.risk),
+            self.store,
+            notifier or Notifier(),
+            mode=mode + ("-testnet" if mode == "live" and cfg.testnet else ""),
+        )
         self._stop = False
+        self.exit_code = 0
+        # Rolling window of closed candles for signal computation. Avoids re-fetching
+        # warmup+100 candles every poll; only new closed candles are fetched incrementally.
+        self._candle_df: pd.DataFrame | None = None
+        self._candle_buffer = 10  # extra closed candles beyond warmup for indicator headroom
 
     # ---- startup ---------------------------------------------------------
     def restore(self) -> None:
-        self.engine.load()
-        if isinstance(self.broker, PaperBroker):
-            bal = self.store.get("paper_balances")
-            if bal:
-                self.broker.base, self.broker.quote = bal
-        elif self.engine.position:
-            base, _ = self.broker.balances()
+        self.engine.load()  # also restores paper balances
+        if not self.broker.live:
+            return
+        base, _ = self.broker.balances()
+        if self.engine.position:
             if base < self.engine.position.qty * 0.5:
                 log.warning("stored position not found in wallet (sold manually?) - clearing it")
                 self.engine.notifier.send(f"[{self.mode}] position {self.cfg.symbol} missing from wallet; cleared")
                 self.engine.position = None
                 self.engine.save()
+            elif abs(base - self.engine.position.qty) > max(self.engine.position.qty * 0.01, 1e-8):
+                # Partial/manual changes leave a position with no reliable stop
+                # size: fail closed rather than trading on a wrong assumption.
+                self.engine._halt(
+                    f"position quantity mismatch {self.cfg.symbol}: wallet {base:.8f} vs tracked "
+                    f"{self.engine.position.qty:.8f} - check Binance, then resume"
+                )
+        elif base > 0:
+            # A buy may have filled without being persisted (crash or unconfirmed
+            # order). Coins with no tracked stop are unacceptable: block new
+            # entries until a human reconciles the wallet.
+            try:
+                price = float(self.ex.fetch_ticker(self.cfg.symbol)["last"])
+                worth = base * price
+            except ccxt.NetworkError:
+                worth = 0.0  # cannot price it; be conservative and halt anyway
+            if worth >= self.broker.min_order_quote() or worth == 0.0:
+                log.error("untracked %s in wallet with no position - halting entries", self.cfg.symbol)
+                self.engine._halt(
+                    f"untracked {base:.8f} {self.cfg.symbol} in wallet (no position/stop); "
+                    f"check Binance, fix, then resume"
+                )
 
-    def persist(self) -> None:
-        if isinstance(self.broker, PaperBroker):
-            self.store.put("paper_balances", [self.broker.base, self.broker.quote])
+    @staticmethod
+    def _price_age(ticker: dict) -> float | None:
+        """Age in seconds of the exchange's last-price timestamp, if it provides one."""
+        ts = ticker.get("timestamp")
+        if ts is not None:
+            try:
+                return max(0.0, (time.time() * 1000 - float(ts)) / 1000)
+            except (TypeError, ValueError):
+                return None
+        raw = ticker.get("datetime")
+        if raw:
+            try:
+                stamp = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                return max(0.0, (datetime.now(UTC) - stamp).total_seconds())
+            except ValueError:
+                return None
+        return None
+
+    def _fetch_candles(self) -> pd.DataFrame:
+        """Fetch closed candles incrementally.
+
+        On the first run, fetches warmup + buffer candles. On subsequent polls,
+        fetches only candles closed since ``last_bar``. Returns a DataFrame with
+        the last ``(warmup + buffer)`` closed candles, ready for signal
+        computation. Indicators are causal so the last-bar signal is identical
+        whether computed from the full history or this rolling window.
+        """
+        warmup = self.strategy.warmup
+        keep = warmup + self._candle_buffer
+        tf_ms = self.ex.parse_timeframe(self.cfg.timeframe) * 1000
+        now_ms = self.ex.milliseconds()
+
+        last_bar = self.store.get("last_bar")
+
+        if self._candle_df is None or last_bar is None:
+            # First run: full fetch of warmup + buffer candles.
+            df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe, limit=warmup + self._candle_buffer + 10)
+            if len(df) <= warmup:
+                log.warning("not enough candles yet (%d)", len(df))
+                return df
+            self._candle_df = df
+            return df
+
+        # Incremental: fetch only candles closed since last_bar.
+        last_bar_ms = pd.Timestamp(last_bar).value // 1_000_000
+        since_ms = last_bar_ms + tf_ms
+        try:
+            new_rows = self.ex.fetch_ohlcv(self.cfg.symbol, self.cfg.timeframe, since=since_ms, limit=50)
+        except ccxt.NetworkError:
+            log.warning("network error fetching incremental candles; using cached df")
+            return self._candle_df
+
+        if not new_rows:
+            return self._candle_df
+
+        new_df = to_frame(new_rows)
+        new_df = drop_open_candle(new_df, tf_ms, now_ms)
+
+        # If we hit the fetch limit, we may have missed candles; fall back to full fetch.
+        if len(new_rows) >= 50:
+            log.warning("incremental fetch hit limit; falling back to full fetch")
+            df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe, limit=warmup + self._candle_buffer + 10)
+            self._candle_df = df
+            return df
+
+        if new_df.empty:
+            return self._candle_df
+
+        # Append new closed candles, dedupe, trim to rolling window.
+        combined = pd.concat([self._candle_df, new_df])
+        combined = combined[~combined.index.duplicated(keep="last")]
+        combined = combined.sort_index()
+        combined = drop_open_candle(combined, tf_ms, now_ms)
+
+        if len(combined) > keep:
+            combined = combined.iloc[-keep:]
+
+        self._candle_df = combined
+        return combined
 
     # ---- loop ------------------------------------------------------------
     def step(self) -> None:
-        df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe, limit=self.strategy.warmup + 100)
+        df = self._fetch_candles()
         if len(df) <= self.strategy.warmup:
             log.warning("not enough candles yet (%d)", len(df))
             return
-        price = float(self.ex.fetch_ticker(self.cfg.symbol)["last"])
+        ticker = self.ex.fetch_ticker(self.cfg.symbol)
+        price = float(ticker["last"])
+        price_age = self._price_age(ticker)
+        max_age = max(3 * self.cfg.poll_seconds, 90)
+        stale = price_age is not None and price_age > max_age
         now = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M")
+        self.engine.apply_resume_request(price)
         bar_key = df.index[-1].isoformat()
         last = self.store.get("last_bar")
-        if last is None:
+        new_bar = False
+        if stale:
+            # Fail closed on execution: a stale last price must not open a new
+            # position. Do not consume the bar either — re-evaluate it once the
+            # feed is fresh. Stops still run with the last available price.
+            log.warning("stale last price (age %.0fs > %.0fs) - skipping new entries", price_age, max_age)
+            self.engine.notifier.send(f"[{self.mode}] ⚠️ stale price ({price_age:.0f}s) - no new entries")
+        elif last is None:
             log.info("first run: syncing to bar %s without trading on it", bar_key)
             self.store.put("last_bar", bar_key)
             new_bar = True  # record a starting equity point
@@ -87,10 +234,9 @@ class Runner:
             self.engine.on_signal(now, sig, price)
             self.store.put("last_bar", bar_key)
             new_bar = True
-        else:
-            new_bar = False
-        self.engine.on_price(now, price, price)
-        self.persist()
+        # live has a single last price: no bar open, so stops keep their real reason
+        self.engine.on_price(now, price, price, open_=None)
+        self.engine.save(force=new_bar)
         base, quote = self.broker.balances()
         equity = base * price + quote
         if new_bar:
@@ -99,36 +245,78 @@ class Runner:
         if start_equity is None:
             start_equity = equity
             self.store.put("start_equity", equity)
-        self.store.put("heartbeat", {
-            "ts": pd.Timestamp.now(tz="UTC").isoformat(), "price": price, "equity": equity,
-            "base": base, "quote": quote, "symbol": self.cfg.symbol, "timeframe": self.cfg.timeframe,
-            "strategy": self.cfg.strategy, "mode": self.engine.mode, "poll_seconds": self.cfg.poll_seconds,
-            "start_equity": start_equity,
-        })
+        self.store.put(
+            "heartbeat",
+            {
+                "ts": pd.Timestamp.now(tz="UTC").isoformat(),
+                "price": price,
+                "equity": equity,
+                "base": base,
+                "quote": quote,
+                "symbol": self.cfg.symbol,
+                "timeframe": self.cfg.timeframe,
+                "strategy": self.cfg.strategy,
+                "mode": self.engine.mode,
+                "poll_seconds": self.cfg.poll_seconds,
+                "start_equity": start_equity,
+                "halted": self.engine.risk.state.halted_reason,
+                "price_age_s": round(price_age, 1) if price_age is not None else None,
+                "price_stale": stale,
+            },
+        )
 
-    def run(self) -> None:
-        import ccxt
-
+    def run(self) -> int:
+        if self.mode == "live":
+            check_live_allowed(self.cfg, self.real_money)  # defense in depth: CLI checks too
         signal.signal(signal.SIGINT, self._handle_stop)
         signal.signal(signal.SIGTERM, self._handle_stop)
         self.restore()
-        self.engine.notifier.send(f"[{self.engine.mode}] bot started {self.cfg.symbol} {self.cfg.timeframe} "
-                                  f"strategy={self.cfg.strategy}")
-        backoff = self.cfg.poll_seconds
+        self.engine.notifier.send(
+            f"[{self.engine.mode}] bot started {self.cfg.symbol} {self.cfg.timeframe} strategy={self.cfg.strategy}"
+        )
+        backoff: float = float(self.cfg.poll_seconds)
         while not self._stop:
-            try:
-                self.step()
-                backoff = self.cfg.poll_seconds
-            except ccxt.NetworkError as exc:
-                backoff = min(backoff * 2, 600)
-                log.warning("network error, retry in %ss: %s", backoff, exc)
-            except ccxt.ExchangeError as exc:
-                log.error("exchange error: %s", exc)
-                self.engine.notifier.send(f"[{self.engine.mode}] ⚠️ exchange error: {exc}")
+            backoff = self.tick(backoff)
+            if self._stop:
+                break
             self._sleep(backoff)
-        self.persist()
         self.engine.save()
-        self.engine.notifier.send(f"[{self.engine.mode}] bot stopped")
+        self.engine.notifier.send(
+            f"[{self.engine.mode}] bot stopped" + (f" (exit code {self.exit_code})" if self.exit_code else "")
+        )
+        return self.exit_code
+
+    def tick(self, backoff: float) -> float:
+        """One guarded step. Returns the delay before the next one."""
+        try:
+            self.step()
+            return self.cfg.poll_seconds
+        except FATAL_ERRORS as exc:
+            log.critical("fatal exchange error, stopping: %s", exc)
+            self.engine.notifier.send(
+                f"[{self.engine.mode}] ⛔ STOPPED - fatal error: {exc}"
+                + (" (open position is NOT protected!)" if self.engine.position else "")
+            )
+            self.exit_code = 3
+            self._stop = True
+        except ccxt.NetworkError as exc:
+            delay = min(backoff * 2, MAX_BACKOFF)
+            if classify_error(exc) == ErrorCategory.RATE_LIMITED and (hint := retry_after(exc)):
+                delay = min(max(delay, hint), MAX_BACKOFF)
+            log.warning("network error, retry in %ss: %s", delay, exc)
+            return delay
+        except ccxt.ExchangeError as exc:
+            category = classify_error(exc)
+            log.error("exchange error (%s): %s", category.value, exc)
+            self.engine.notifier.send(f"[{self.engine.mode}] ⚠️ exchange error: {exc}")
+            # A rejected or malformed order will not fix itself on its own —
+            # keep polling at the normal cadence instead of escalating backoff.
+            if category in (ErrorCategory.INVALID_ORDER, ErrorCategory.REJECTED):
+                return self.cfg.poll_seconds
+        except Exception as exc:  # keep managing stops even if something unexpected breaks
+            log.exception("unexpected error in trading loop")
+            self.engine.notifier.send(f"[{self.engine.mode}] ⚠️ unexpected error: {type(exc).__name__}: {exc}")
+        return min(backoff * 2, MAX_BACKOFF)
 
     def _sleep(self, seconds: float) -> None:
         end = time.time() + seconds

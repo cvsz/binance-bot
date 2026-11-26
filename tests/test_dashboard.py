@@ -1,4 +1,5 @@
 import json
+import logging
 import threading
 import urllib.error
 import urllib.request
@@ -22,7 +23,8 @@ def populated(tmp_path):
     r = Runner(cfg, "paper", exchange=ex, notifier=NullNotifier())
     r.restore()
     for _ in range(1100):
-        r.step(); ex.i += 1
+        r.step()
+        ex.i += 1
     return cfg
 
 
@@ -45,6 +47,7 @@ def test_db_paths():
     assert str(db_path_for(AppConfig(testnet=False), "live")).endswith("bot.live.db")
 
 
+@pytest.mark.slow
 def test_summary_contents(populated):
     s = build_summary(Store(db_path_for(populated, "paper")))
     assert s["status"] == "online"
@@ -54,6 +57,7 @@ def test_summary_contents(populated):
     assert len(Store(db_path_for(populated, "paper")).equity_series()) > 100
 
 
+@pytest.mark.slow
 def test_http_endpoints(populated):
     paths = {"paper": db_path_for(populated, "paper"), "live": db_path_for(populated, "live")}
     httpd, base = start(make_handler(paths, token=None))
@@ -71,6 +75,7 @@ def test_http_endpoints(populated):
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_token_required(populated):
     httpd, base = start(make_handler({"paper": db_path_for(populated, "paper")}, token="s3cret"))
     try:
@@ -88,3 +93,29 @@ def test_public_bind_needs_token(monkeypatch):
     monkeypatch.delenv("DASHBOARD_TOKEN", raising=False)
     with pytest.raises(PermissionError):
         serve({}, host="0.0.0.0", port=0)
+
+
+def test_security_headers(tmp_path):
+    db = tmp_path / "x.db"
+    Store(db).put("heartbeat", {"ts": "2025-01-01T00:00:00+00:00"})
+    httpd, base = start(make_handler({"paper": db}, token=None))
+    try:
+        with urllib.request.urlopen(base + "/") as r:
+            assert r.headers["X-Frame-Options"] == "DENY"
+            assert r.headers["X-Content-Type-Options"] == "nosniff"
+            assert r.headers["Cache-Control"] == "no-store"
+            assert "default-src 'self'" in r.headers["Content-Security-Policy"]
+    finally:
+        httpd.shutdown()
+
+
+def test_request_logging_never_leaks_token(caplog):
+    handler = make_handler({}, token="s3cret")
+    dummy = handler.__new__(handler)  # bypass BaseHTTPRequestHandler.__init__
+    dummy.path = "/api/summary?mode=paper&token=s3cret123"
+    dummy.address_string = lambda: "127.0.0.1"
+    with caplog.at_level(logging.DEBUG, logger="bot.dashboard"):
+        dummy.log_request("200", "-")
+        dummy.log_message('"GET %s HTTP/1.1" 200', dummy.path)
+    assert "s3cret123" not in caplog.text
+    assert "/api/summary" in caplog.text

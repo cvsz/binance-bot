@@ -14,14 +14,35 @@
 | **live (testnet)** | Binance Testnet | เงินปลอมของ testnet | `python run.py live` |
 | **live (เงินจริง)** | Binance | **เงินจริง** | `python run.py live --real-money` + ยืนยันใน `.env` |
 
+- **Venue**: `binance` (ค่าเริ่มต้น), `binanceus` หรือ `binanceth` ตั้งใน `exchange.name` — key/DB แยกตาม venue อัตโนมัติ (TH ใช้ adapter เฉพาะ เป็น **เงินจริงเท่านั้น** ไม่มี testnet ต้องผ่าน `--real-money`)
 - **กลยุทธ์**: `ema_cross` (ตามเทรนด์ EMA ตัดกัน + กรอง RSI) และ `rsi_reversion` (ซื้อตอน RSI ฟื้นจาก oversold ในขาขึ้น) — เพิ่มเองได้ใน `bot/strategies.py`
-- **บริหารความเสี่ยง**: คำนวณขนาดไม้จาก % ความเสี่ยงต่อไม้, stop-loss บังคับ, take-profit, trailing stop, จำกัดเงินต่อไม้, หยุดเปิดไม้เมื่อขาดทุนรายวันเกินกำหนด, จำกัดจำนวนไม้ต่อวัน, cooldown
+- **บริหารความเสี่ยง**: คำนวณขนาดไม้จาก % ความเสี่ยงต่อไม้, stop-loss บังคับ, take-profit, trailing stop, จำกัดเงินต่อไม้, หยุดเปิดไม้เมื่อขาดทุนรายวันเกินกำหนด, จำกัดจำนวนไม้ต่อวัน, cooldown, และ kill switch เมื่อพอร์ตลดจากจุดสูงสุดเกิน `max_drawdown_halt_pct` (ไม่บังคับ)
 - **ไม่มี lookahead**: สัญญาณใช้เฉพาะแท่งเทียนที่ปิดแล้ว, backtest ส่งคำสั่งที่ราคาเปิดของแท่งถัดไป (เหมือนของจริง) และคิดค่าธรรมเนียม + slippage
-- **ทนทาน**: บันทึกสถานะลง SQLite (รีสตาร์ทแล้วทำต่อได้), retry เมื่อเน็ตหลุด, ปิดอย่างปลอดภัยเมื่อกด Ctrl+C
+- **ทนทาน**: บันทึกสถานะลง SQLite แบบ transaction เดียว (รีสตาร์ทแล้วทำต่อได้), retry เมื่อเน็ตหลุด, ลูปไม่ตายเมื่อเจอ error ที่ไม่คาดคิด, หยุดทันทีเมื่อ API key ใช้ไม่ได้, ปิดอย่างปลอดภัยเมื่อกด Ctrl+C
+- **คำสั่งซื้อขายไม่หาย**: ทุกออเดอร์มี client order id ถ้าเน็ตหลุดหลังส่งออเดอร์ บอทจะค้นหาออเดอร์นั้นแทนการลืมไป ถ้ายืนยันสถานะไม่ได้จะ **หยุดเปิดไม้ใหม่** และแจ้งเตือนให้ตรวจบัญชี (รอบถัดไปพยายามคืนค่า sell ที่ fill จริงจาก client order id ก่อนขายซ้ำ)
+- **รอ fill ให้ครบ**: ไม่ยืนยันออเดอร์จากยอดคงเหลือที่เปลี่ยนครั้งแรก (กัน partial fill ทำให้ขายไม่ครบหรือเหรียญค้างโดยไม่มี stop)
+- **ไม่ retry ออเดอร์แบบบอด**: ถ้าส่งออเดอร์แล้วผลไม่แน่นอน (error แปลกๆ/เน็ตหลุด) บอทค้นหาด้วย client order id แล้ว halt ถ้ายืนยันไม่ได้ — ป้องกันออเดอร์ซ้ำ (port pattern จาก [zksato](https://github.com/cvsz/zksato), MIT)
+- **กันเหรียญไร้เจ้าของ**: ถ้าเจอเหรียญ base ในกระเป๋าโดยไม่มี position บันทึกอยู่ตอนเริ่มต้น (หรือจำนวนไม่ตรงเกิน 1%) จะหยุดเปิดไม้ใหม่และแจ้งเตือนให้ตรวจบัญชี
+- **ไม่เทรดบนราคาค้าง**: ถ้าราคาล่าสุดจาก exchange มี timestamp เก่าเกิน ~3 เท่า poll seconds (อย่างน้อย 90s) จะข้ามการเปิดไม้และรอราคาสด แต่ยังเช็ค stop อยู่
 - **ไม่แตะเหรียญเดิมของคุณ**: บอทขายเฉพาะจำนวนที่ตัวเองซื้อ
 - **แจ้งเตือน Telegram** (ไม่บังคับ)
 
-## เริ่มใช้งาน
+## เอกสาร
+
+คู่มือครบชุดอยู่ใน [docs/](docs/README.md): [สถาปัตยกรรม](docs/ARCHITECTURE.md) · [การตั้งค่า](docs/CONFIGURATION.md) · [ความเสี่ยง](docs/RISK.md) · [กลยุทธ์](docs/STRATEGIES.md) · [Runbook](docs/OPERATIONS.md) · [ความพร้อม production](docs/PRODUCTION.md) · [ความปลอดภัย](docs/SECURITY.md) · [คำสั่ง](docs/CLI.md) · [การพัฒนา](docs/DEVELOPMENT.md) · [แก้ปัญหา](docs/TROUBLESHOOTING.md) — ประวัติการเปลี่ยนแปลง: [CHANGELOG.md](CHANGELOG.md)
+
+## เริ่มใช้งาน (Makefile)
+
+```bash
+make setup        # venv + deps + config.yaml/.env + permissions
+make doctor       # ตรวจสภาพแวดล้อม
+make ci           # lint + docs + secrets + tests
+make backtest     # แล้ว make start / make dashboard
+```
+
+`make` เฉยๆ แสดงคำสั่งทั้งหมด — รายละเอียดใน [docs/CLI.md](docs/CLI.md)
+
+## เริ่มใช้งาน (ด้วยมือ)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
@@ -34,6 +55,10 @@ cp .env.example .env
 ```bash
 python run.py backtest --days 180
 python run.py backtest --csv my_ohlcv.csv          # CSV: timestamp,open,high,low,close,volume
+
+# หรือใช้ชุดข้อมูลสาธารณะของ Binance (ตรวจ checksum, ไม่ติด rate limit, ทำ backtest หลายช่วงง่าย)
+make public-data SYMBOL=BTCUSDT INTERVAL=15m DAYS=365
+make backtest CSV=reports/public_BTCUSDT_15m.csv
 ```
 ผลลัพธ์: ผลตอบแทน, เทียบกับ buy & hold, max drawdown, win rate, profit factor, Sharpe และไฟล์ `reports/backtest_trades.csv`, `reports/backtest_equity.csv`
 
@@ -43,6 +68,7 @@ python run.py backtest --csv my_ohlcv.csv          # CSV: timestamp,open,high,lo
 ```bash
 python run.py paper
 python run.py status --mode paper     # ดูสถานะ/ไม้ล่าสุด
+python run.py health --mode paper     # exit 0 ถ้าบอทยังส่ง heartbeat (ใช้กับ Docker/monitoring)
 ```
 ปล่อยรันอย่างน้อย 1–2 สัปดาห์
 
@@ -58,6 +84,19 @@ python run.py status --mode paper     # ดูสถานะ/ไม้ล่า
 4. `python run.py live --real-money`
 
 ขาดข้อใดข้อหนึ่ง บอทจะไม่ยอมเริ่ม
+
+## เมื่อบอทหยุดเปิดไม้ (HALTED)
+
+บอทจะหยุดเปิดไม้ใหม่ (แต่ยังดูแล stop-loss ของไม้ที่เปิดอยู่) เมื่อ:
+- ขาดทุนรายวันเกิน `max_daily_loss_pct` — ปลดเองอัตโนมัติวันถัดไป (UTC)
+- พอร์ตลดจากจุดสูงสุดเกิน `max_drawdown_halt_pct` — **ต้องปลดเอง**
+- ส่งออเดอร์แล้วยืนยันผลไม่ได้ (เช่นเน็ตหลุดนานๆ) — **ต้องตรวจบัญชีบน Binance ก่อนแล้วค่อยปลด**
+
+```bash
+python run.py resume --mode live      # ใช้ได้ทั้งตอนบอทรันอยู่และหยุดอยู่
+```
+
+ถ้าไม้มีขนาดเล็กกว่าขั้นต่ำของ Binance (dust) จนขายไม่ได้ บอทจะเลิกติดตามไม้นั้น (เหรียญยังอยู่ในกระเป๋า) และแจ้งเตือน แทนการพยายามขายซ้ำไม่รู้จบ
 
 ## Dashboard
 
@@ -80,14 +119,21 @@ python run.py dashboard              # เปิด http://localhost:8080
 
 ## รันแบบ 24/7 ด้วย Docker
 ```bash
+mkdir -p data                       # สร้างเองก่อน ไม่งั้น Docker สร้างเป็น root แล้วบอทเขียนไม่ได้
 docker compose up -d --build        # บอท (paper) + dashboard ที่ http://localhost:8080/?token=<DASHBOARD_TOKEN>
+docker compose ps                   # ดูสถานะ healthcheck
 docker compose logs -f
 ```
+เวอร์ชันแพ็กเกจที่ผ่านเทสถูกล็อกไว้ใน `constraints.txt` (Docker ใช้ไฟล์นี้)
 
 ## ข้อควรรู้
 - **Long-only spot**: ซื้อแล้วขาย ไม่มี short/leverage/futures (ตั้งใจเพื่อความปลอดภัย)
 - **Stop-loss/TP ทำงานฝั่งบอท** (บอทเช็คราคาทุก `poll_seconds`) ถ้าบอทดับ stop จะไม่ทำงาน — ควรรันบน VPS/Docker ที่ `restart: unless-stopped` และเปิดแจ้งเตือน Telegram
 - จำกัดขาดทุนรายวันนับตามวัน **UTC** (07:00 เวลาไทย)
+- ในโหมด live ขนาดไม้/ขาดทุนรายวัน/drawdown คำนวณจาก **ยอดทั้งบัญชี** (base + quote) ถ้ามีเหรียญเดิมอยู่ ราคาเหรียญเดิมจะมีผลด้วย — แนะนำใช้ sub-account แยกสำหรับบอท
+- config เข้มงวด: ชื่อ key ที่สะกดผิดทุก section ถูกปฏิเสธ, `testnet` ต้องเป็น `true`/`false` (ไม่แปลง `"false"` เป็น false), `db_path` ห้ามมี `..`
+- API key ได้ทั้งแบบ **System generated (HMAC)** และ **Self-generated (Ed25519/RSA)** — ใส่ PEM private key ลงใน `*_API_SECRET` ได้เลย ccxt เลือกวิธีเซ็นให้ (สร้างด้วย [Binance Asymmetric Key Generator](https://github.com/binance/asymmetric-key-generator/releases) แบบไม่ใส่ passphrase) ดู [SECURITY.md](docs/SECURITY.md#api-key-types)
+- `.env` ควรเป็น `chmod 600` (อ่านได้เฉพาะเจ้าของ)
 - ใช้ Binance global (binance.com) — **Binance TH** เป็นคนละระบบ/API ใช้กับบอทนี้ไม่ได้โดยตรง
 - กำหนดค่าธรรมเนียม/slippage ใน `paper` ให้ใกล้ของจริง (Binance spot ปกติ 0.1%)
 
@@ -103,11 +149,15 @@ bot/runner.py       ลูปรัน paper/live
 bot/store.py        SQLite: บันทึกเทรด + สถานะ
 bot/dashboard.py    web dashboard (stdlib, read-only) + dashboard.html
 run.py              CLI
-tests/              pytest (26 tests)
+Makefile            คำสั่ง dev/ops (make เพื่อดูทั้งหมด)
+docs/               เอกสารครบชุด
+scripts/            ตรวจเอกสาร/ความลับ (make ci)
+tests/              pytest (94 tests)
 ```
 
 ## ทดสอบ
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt -c constraints.txt
 pytest -q
+ruff check .
 ```

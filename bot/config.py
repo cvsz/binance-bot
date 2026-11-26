@@ -1,19 +1,38 @@
 """Configuration loading (YAML for settings, environment/.env for secrets)."""
+
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import yaml
 
 from .risk import RiskConfig
+from .venues import DEFAULT_VENUE, get_venue
+
+TIMEFRAME_RE = re.compile(r"^\d+[smhdwM]$")
+SYMBOL_RE = re.compile(r"^[A-Z0-9]+/[A-Z0-9]+$")
+
+# Unknown keys are rejected everywhere: a typo must never silently change what
+# the bot does (especially exchange.testnet). `strategy.params` stays free-form
+# because each strategy validates its own parameter names.
+TOP_KEYS = {"symbol", "timeframe", "exchange", "strategy", "risk", "paper", "loop", "db_path"}
+SECTION_KEYS = {
+    "exchange": {"name", "testnet"},
+    "strategy": {"name", "params"},
+    "paper": {"starting_quote", "fee_pct", "slippage_pct"},
+    "loop": {"poll_seconds"},
+    "risk": {f.name for f in fields(RiskConfig)},  # same names RiskConfig validates
+}
 
 
 @dataclass
 class AppConfig:
     symbol: str = "BTC/USDT"
     timeframe: str = "15m"
+    exchange_name: str = DEFAULT_VENUE
     testnet: bool = True
     strategy: str = "ema_cross"
     strategy_params: dict = field(default_factory=dict)
@@ -24,29 +43,76 @@ class AppConfig:
     poll_seconds: int = 30
     db_path: str = "data/bot.db"
 
+    def __post_init__(self):
+        venue = get_venue(self.exchange_name)  # rejects unsupported venues with an actionable message
+        if self.testnet and not venue.supports_testnet:
+            raise ValueError(
+                f"exchange.name={venue.id} has no testnet: set exchange.testnet: false "
+                f"(this venue trades REAL MONEY only)"
+            )
+        if not SYMBOL_RE.match(self.symbol):
+            raise ValueError(f"symbol must look like BASE/QUOTE (e.g. BTC/USDT), got {self.symbol!r}")
+        if not TIMEFRAME_RE.match(self.timeframe):
+            raise ValueError(f"timeframe must look like 1m/15m/1h/4h/1d, got {self.timeframe!r}")
+        if self.paper_starting_quote <= 0:
+            raise ValueError("paper.starting_quote must be > 0")
+        if not 0 <= self.fee_pct < 5 or not 0 <= self.slippage_pct < 5:
+            raise ValueError("paper.fee_pct and paper.slippage_pct must be in [0, 5)")
+        if self.poll_seconds < 5:
+            raise ValueError("poll_seconds must be >= 5 to respect exchange rate limits")
+        if ".." in Path(self.db_path).parts:
+            raise ValueError("db_path must not contain '..' path segments")
+
+
+def _section(raw: dict, name: str) -> dict:
+    val = raw.get(name)
+    if val is None:
+        return {}
+    if not isinstance(val, dict):
+        raise ValueError(f"config section '{name}' must be a mapping")
+    unknown = set(val) - SECTION_KEYS[name]
+    if unknown:
+        raise ValueError(f"unknown {name} settings: {sorted(unknown)} (valid: {sorted(SECTION_KEYS[name])})")
+    return val
+
+
+def _bool(raw: dict, name: str, default: bool) -> bool:
+    """Strict boolean parsing: bool('false') is True, which is never what an operator means."""
+    value = raw.get(name, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    raise ValueError(f"{name} must be true or false, got {value!r}")
+
 
 def load_config(path: str | Path) -> AppConfig:
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-    ex = raw.get("exchange", {})
-    strat = raw.get("strategy", {})
-    paper = raw.get("paper", {})
-    loop = raw.get("loop", {})
-    cfg = AppConfig(
-        symbol=raw.get("symbol", "BTC/USDT"),
-        timeframe=raw.get("timeframe", "15m"),
-        testnet=bool(ex.get("testnet", True)),
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"{p} not found - copy config.example.yaml to {p.name} first")
+    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{p} must contain a YAML mapping")
+    unknown = set(raw) - TOP_KEYS
+    if unknown:
+        raise ValueError(f"unknown config keys: {sorted(unknown)} (valid: {sorted(TOP_KEYS)})")
+    ex, strat, paper, loop = (_section(raw, n) for n in ("exchange", "strategy", "paper", "loop"))
+    return AppConfig(
+        symbol=str(raw.get("symbol", "BTC/USDT")).upper(),
+        timeframe=str(raw.get("timeframe", "15m")),
+        exchange_name=str(ex.get("name", DEFAULT_VENUE)).lower(),
+        testnet=_bool(ex, "testnet", True),
         strategy=strat.get("name", "ema_cross"),
-        strategy_params=strat.get("params", {}) or {},
-        risk=RiskConfig(**(raw.get("risk", {}) or {})),
+        strategy_params=strat.get("params") or {},
+        risk=RiskConfig.from_dict(_section(raw, "risk")),
         paper_starting_quote=float(paper.get("starting_quote", 1000)),
         fee_pct=float(paper.get("fee_pct", 0.1)),
         slippage_pct=float(paper.get("slippage_pct", 0.05)),
         poll_seconds=int(loop.get("poll_seconds", 30)),
-        db_path=raw.get("db_path", "data/bot.db"),
+        db_path=str(raw.get("db_path", "data/bot.db")),
     )
-    if cfg.poll_seconds < 5:
-        raise ValueError("poll_seconds must be >= 5 to respect exchange rate limits")
-    return cfg
 
 
 DB_MODES = {"paper": ".paper", "live-testnet": ".live.testnet", "live": ".live"}
@@ -57,12 +123,27 @@ def db_path_for(cfg: AppConfig, mode: str) -> Path:
     if mode == "live" and cfg.testnet:
         mode = "live-testnet"
     p = Path(cfg.db_path)
-    return p.with_name(p.stem + DB_MODES[mode] + p.suffix)
+    venue_part = "" if cfg.exchange_name == DEFAULT_VENUE else f".{cfg.exchange_name}"
+    return p.with_name(p.stem + DB_MODES[mode] + venue_part + p.suffix)
 
 
-def api_keys(testnet: bool) -> tuple[str | None, str | None]:
-    prefix = "BINANCE_TESTNET_" if testnet else "BINANCE_"
-    return os.getenv(prefix + "API_KEY"), os.getenv(prefix + "API_SECRET")
+def api_keys(testnet: bool, venue: str = DEFAULT_VENUE) -> tuple[str | None, str | None]:
+    """Read credentials for a venue, accepting its documented env-var aliases.
+
+    The first prefix that has BOTH key and secret set wins. Different naming
+    conventions from other projects (BINANCE_TH_*, BINANCE_US_*) are accepted so
+    an existing .env does not need renaming; the venue itself still decides which
+    exchange host is used.
+    """
+    selected = get_venue(venue)
+    for prefix in (selected.key_prefix,) + tuple(selected.aliases):
+        env_prefix = f"{prefix}_TESTNET_" if testnet else f"{prefix}_"
+        key, secret = os.getenv(env_prefix + "API_KEY"), os.getenv(env_prefix + "API_SECRET")
+        if key and secret:
+            return key, secret
+    # nothing complete found: return the primary pair so the gate can report which names it needs
+    env_prefix = f"{selected.key_prefix}_TESTNET_" if testnet else f"{selected.key_prefix}_"
+    return os.getenv(env_prefix + "API_KEY"), os.getenv(env_prefix + "API_SECRET")
 
 
 REAL_MONEY_ENV = "BOT_CONFIRM_REAL_MONEY"
@@ -71,9 +152,12 @@ REAL_MONEY_VALUE = "YES_I_ACCEPT_THE_RISK"
 
 def check_live_allowed(cfg: AppConfig, real_money_flag: bool) -> None:
     """Raise unless every safety gate for live trading is satisfied."""
-    key, secret = api_keys(cfg.testnet)
+    key, secret = api_keys(cfg.testnet, cfg.exchange_name)
+    selected = get_venue(cfg.exchange_name)
     if not key or not secret:
-        which = "BINANCE_TESTNET_API_KEY/SECRET" if cfg.testnet else "BINANCE_API_KEY/SECRET"
+        suffix = "_TESTNET_API_KEY/SECRET" if cfg.testnet else "_API_KEY/SECRET"
+        names = " หรือ ".join(prefix + suffix for prefix in (selected.key_prefix,) + tuple(selected.aliases))
+        which = names
         raise PermissionError(f"live mode needs {which} in the environment or .env")
     if cfg.testnet:
         return

@@ -81,7 +81,7 @@
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const token = params.get("token") || "";
-const REASONS = { signal:"สัญญาณ", stop_loss:"Stop loss", stop_gap:"Stop (gap)", trailing_stop:"Trailing stop", take_profit:"Take profit" };
+const REASONS = { signal:"สัญญาณ", stop_loss:"Stop loss", stop_gap:"Stop (gap)", trailing_stop:"Trailing stop", take_profit:"Take profit", dust:"เล็กกว่าขั้นต่ำ (ค้างในกระเป๋า)", missing:"ไม่พบในกระเป๋า" };
 
 function fmt(n, d = 2) {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
@@ -167,7 +167,8 @@ function renderTrades(trades) {
   }
   for (const t of trades) {
     const tr = document.createElement("tr");
-    const side = t.side === "buy" ? "ซื้อ" : `ขาย · ${REASONS[t.reason] || t.reason}`;
+    const why = REASONS[t.reason] || t.reason;
+    const side = t.side === "buy" ? "ซื้อ" : t.side === "abandon" ? `ทิ้งไม้ · ${why}` : `ขาย · ${why}`;
     const cells = [t.ts, side, fmt(t.qty, 6), fmt(t.price, priceDigits(t.price)), fmt(t.quote), t.pnl_quote === null ? "" : signed(t.pnl_quote)];
     cells.forEach((c, i) => {
       const td = document.createElement("td"); td.textContent = c;
