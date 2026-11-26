@@ -7,6 +7,8 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from .lock import Lock
+
 TRADE_COLS = ("ts", "mode", "symbol", "side", "qty", "price", "quote", "reason", "pnl_quote", "order_id")
 
 
@@ -20,6 +22,7 @@ class Store:
     def __init__(self, path: str | Path = ":memory:", read_only: bool = False):
         self._lock = threading.RLock()
         self.read_only = read_only
+        self._file_lock: Lock | None = None
         if read_only:
             p = Path(path).resolve()
             if not p.exists():
@@ -28,6 +31,9 @@ class Store:
             return
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
+            # Process-level lock: prevents two bot instances from writing the same DB.
+            lock_path = str(path) + ".lock"
+            self._file_lock = Lock.acquire(lock_path)
         self.db = sqlite3.connect(str(path), check_same_thread=False, timeout=10)
         if path != ":memory:":
             self.db.execute("PRAGMA journal_mode=WAL")  # dashboard can read while the bot writes
@@ -43,6 +49,14 @@ class Store:
             CREATE TABLE IF NOT EXISTS equity (ts TEXT PRIMARY KEY, equity REAL, price REAL);
             """
         )
+
+    def close(self) -> None:
+        """Release the process-level lock and close the database."""
+        with self._lock:
+            if self._file_lock is not None:
+                self._file_lock.release()
+                self._file_lock = None
+            self.db.close()
 
     def log_trade(self, **row) -> None:
         unknown = set(row) - set(TRADE_COLS)
