@@ -4,6 +4,7 @@ TH has no public testnet and ccxt has no `binanceth` class, so this shim exposes
 only the ccxt-shaped methods this bot actually uses. It lets the existing
 ``LiveBroker`` and ``Runner`` work unchanged; no strategy/risk logic is duplicated.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -45,8 +46,14 @@ class THExchange:
     name = "Binance TH"
     rateLimit = 1000
 
-    def __init__(self, api_key: str | None, api_secret: str | None, base_url: str = BASE_URL,
-                 markets: list[dict] | None = None, clock_offset_ms: int = 0):
+    def __init__(
+        self,
+        api_key: str | None,
+        api_secret: str | None,
+        base_url: str = BASE_URL,
+        markets: list[dict] | None = None,
+        clock_offset_ms: int = 0,
+    ):
         self.apiKey, self.secret = api_key, api_secret
         self.base_url = base_url.rstrip("/")
         self.markets: dict[str, dict] = {}
@@ -94,9 +101,12 @@ class THExchange:
 
     def _sign(self, query: str) -> str:
         self.check_required_credentials()
+        if self.secret is None:
+            raise ccxt.AuthenticationError("Binance TH secret is required")
         if "PRIVATE KEY" in self.secret:
             raise NotImplementedError(
-                "Binance TH RSA/Ed25519 keys are not supported by this adapter yet; use an HMAC key")
+                "Binance TH RSA/Ed25519 keys are not supported by this adapter yet; use an HMAC key"
+            )
         return hmac.new(self.secret.encode(), query.encode(), hashlib.sha256).hexdigest()
 
     def _request(self, method: str, path: str, params: dict | None = None, *, signed: bool = False) -> Any:
@@ -111,6 +121,8 @@ class THExchange:
         headers = {"User-Agent": "binance-bot-th/1.0"}
         data = None
         if signed:
+            if self.apiKey is None:
+                raise ccxt.AuthenticationError("Binance TH API key is required")
             headers["X-MBX-APIKEY"] = self.apiKey
         if method == "GET":
             url = f"{self.base_url}{API_PREFIX}{path}" + (f"?{query}" if query else "")
@@ -223,12 +235,17 @@ class THExchange:
         return {"free": free, "total": total}
 
     def _create_order(self, side: str, symbol: str, params: dict) -> dict:
-        payload = self._request("POST", "/order", {
-            "symbol": self._native(symbol),
-            "side": side,
-            "type": "MARKET",
-            **params,
-        }, signed=True)
+        payload = self._request(
+            "POST",
+            "/order",
+            {
+                "symbol": self._native(symbol),
+                "side": side,
+                "type": "MARKET",
+                **params,
+            },
+            signed=True,
+        )
         return self._map_order(payload)
 
     def create_market_buy_order_with_cost(self, symbol: str, cost: float, params: dict | None = None) -> dict:
@@ -262,7 +279,8 @@ class THExchange:
         cost = float(payload.get("cummulativeQuoteQty") or 0)
         fees = [
             {"currency": fill.get("commissionAsset"), "cost": float(fill.get("commission") or 0)}
-            for fill in payload.get("fills", []) if fill.get("commissionAsset")
+            for fill in payload.get("fills", [])
+            if fill.get("commissionAsset")
         ]
         return {
             "id": str(payload.get("orderId", "")),

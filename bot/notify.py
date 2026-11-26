@@ -1,4 +1,5 @@
 """Optional Telegram notifications (set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)."""
+
 from __future__ import annotations
 
 import json

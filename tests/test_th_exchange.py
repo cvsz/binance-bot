@@ -1,4 +1,5 @@
 """Offline tests for the Binance TH signed-REST adapter (no network, no real orders)."""
+
 import hashlib
 import hmac
 import io
@@ -33,8 +34,7 @@ def test_sandbox_is_refused():
 
 
 def test_sign_uses_hmac_sha256():
-    assert make_exchange()._sign("a=1&b=2") == hmac.new(
-        b"s", b"a=1&b=2", hashlib.sha256).hexdigest()
+    assert make_exchange()._sign("a=1&b=2") == hmac.new(b"s", b"a=1&b=2", hashlib.sha256).hexdigest()
 
 
 def test_pem_secret_is_rejected_with_clear_message():
@@ -90,8 +90,8 @@ def test_http_401_maps_to_authentication_error(monkeypatch):
 
     def fake_urlopen(request, timeout=None):
         raise urllib.error.HTTPError(
-            request.full_url, 401, "Unauthorized", {},
-            io.BytesIO(b'{"code":-2015,"msg":"Invalid API-key"}'))
+            request.full_url, 401, "Unauthorized", {}, io.BytesIO(b'{"code":-2015,"msg":"Invalid API-key"}')
+        )
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     with pytest.raises(ccxt.AuthenticationError, match="-2015"):
@@ -111,10 +111,12 @@ class FakeTH(THExchange):
         if path == "/exchangeInfo":
             return {"symbols": [MARKET]}
         if path == "/account":
-            return {"balances": [
-                {"asset": "BTC", "free": str(self.base), "locked": "0"},
-                {"asset": "THB", "free": str(self.quote), "locked": "0"},
-            ]}
+            return {
+                "balances": [
+                    {"asset": "BTC", "free": str(self.base), "locked": "0"},
+                    {"asset": "THB", "free": str(self.quote), "locked": "0"},
+                ]
+            }
         if path == "/order" and method == "POST":
             if "quoteOrderQty" in params:
                 spent = float(params["quoteOrderQty"])
@@ -131,9 +133,14 @@ class FakeTH(THExchange):
             order = {
                 "orderId": str(len(self.orders) + 1),
                 "clientOrderId": params.get("newClientOrderId"),
-                "symbol": "BTCTHB", "side": side, "type": "MARKET",
-                "origQty": str(qty), "executedQty": str(qty), "cummulativeQuoteQty": str(spent),
-                "status": "FILLED", "fills": [{"commissionAsset": "THB", "commission": str(spent * 0.001)}],
+                "symbol": "BTCTHB",
+                "side": side,
+                "type": "MARKET",
+                "origQty": str(qty),
+                "executedQty": str(qty),
+                "cummulativeQuoteQty": str(spent),
+                "status": "FILLED",
+                "fills": [{"commissionAsset": "THB", "commission": str(spent * 0.001)}],
             }
             self.orders[order["clientOrderId"]] = order
             return order
@@ -144,8 +151,7 @@ class FakeTH(THExchange):
 
 def test_live_broker_round_trip_through_th_adapter():
     exchange = FakeTH()
-    broker = LiveBroker(exchange, "BTC/THB", settle_attempts=2, settle_delay=0,
-                        lookup_attempts=2, lookup_delay=0)
+    broker = LiveBroker(exchange, "BTC/THB", settle_attempts=2, settle_delay=0, lookup_attempts=2, lookup_delay=0)
     buy = broker.buy_quote(100, 1000)
     assert buy.qty > 0 and buy.quote > 0
     sell = broker.sell_qty(buy.qty, 1000)

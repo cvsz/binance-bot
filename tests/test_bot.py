@@ -29,6 +29,7 @@ def synthetic(n=3000, seed=7, start=30000.0):
 
 # ---- indicators / strategies ---------------------------------------------
 
+
 def test_rsi_bounds_and_flat():
     s = synthetic()["close"]
     r = rsi(s).dropna()
@@ -61,6 +62,7 @@ def test_build_strategy_validation():
 
 # ---- risk ------------------------------------------------------------------
 
+
 def test_position_sizing_capped():
     rm = RiskManager(RiskConfig(risk_per_trade_pct=1, stop_loss_pct=2, max_position_pct=25))
     # 1% risk / 2% stop = 50% of equity, capped at 25%
@@ -84,6 +86,7 @@ def test_daily_loss_halt_and_reset():
 
 
 # ---- broker / engine -------------------------------------------------------
+
 
 def test_paper_broker_round_trip_costs():
     b = PaperBroker(1000, fee_pct=0.1, slippage_pct=0.05)
@@ -141,6 +144,7 @@ def test_state_persists_across_restart(tmp_path):
 
 # ---- backtest --------------------------------------------------------------
 
+
 def test_backtest_end_to_end():
     df = synthetic()
     res = run_backtest(df, EmaCross(), RiskConfig())
@@ -167,9 +171,15 @@ def test_drop_open_candle():
 
 # ---- safety gates ------------------------------------------------------------
 
+
 def test_live_gates(monkeypatch):
-    for k in ("BINANCE_API_KEY", "BINANCE_API_SECRET", "BINANCE_TESTNET_API_KEY",
-              "BINANCE_TESTNET_API_SECRET", REAL_MONEY_ENV):
+    for k in (
+        "BINANCE_API_KEY",
+        "BINANCE_API_SECRET",
+        "BINANCE_TESTNET_API_KEY",
+        "BINANCE_TESTNET_API_SECRET",
+        REAL_MONEY_ENV,
+    ):
         monkeypatch.delenv(k, raising=False)
     with pytest.raises(PermissionError):
         check_live_allowed(AppConfig(testnet=True), False)
@@ -181,8 +191,8 @@ def test_live_gates(monkeypatch):
     monkeypatch.setenv("BINANCE_API_KEY", "k")
     monkeypatch.setenv("BINANCE_API_SECRET", "s")
     with pytest.raises(PermissionError):
-        check_live_allowed(real, False)          # missing --real-money
+        check_live_allowed(real, False)  # missing --real-money
     with pytest.raises(PermissionError):
-        check_live_allowed(real, True)           # missing env confirmation
+        check_live_allowed(real, True)  # missing env confirmation
     monkeypatch.setenv(REAL_MONEY_ENV, REAL_MONEY_VALUE)
     check_live_allowed(real, True)

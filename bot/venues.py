@@ -6,6 +6,7 @@ actually been written against are accepted. Pattern inspired by zksato's
 per-exchange credential handling (MIT, github.com/cvsz/zksato), adapted to the
 single-pair sync architecture here.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,17 +28,21 @@ class Venue:
 
 
 VENUES: dict[str, Venue] = {
-    "binance": Venue("binance", "binance", "BINANCE", "Binance global (spot)",
-                     aliases=("BINANCE", "BINANCE_TH")),
-    "binanceus": Venue("binanceus", "binanceus", "BINANCEUS", "Binance.US (spot)",
-                       aliases=("BINANCEUS", "BINANCE_US")),
+    "binance": Venue("binance", "binance", "BINANCE", "Binance global (spot)", aliases=("BINANCE", "BINANCE_TH")),
+    "binanceus": Venue("binanceus", "binanceus", "BINANCEUS", "Binance.US (spot)", aliases=("BINANCEUS", "BINANCE_US")),
     # ccxt has no `binanceth` class and TH uses /api/v1 (not /api/v3), so this
     # venue uses a dedicated signed-REST adapter bot/th_exchange.py.
     # TH has NO public testnet: every order is REAL MONEY.
-    "binanceth": Venue("binanceth", "", "BINANCETH", "Binance TH (THB, real money only)",
-                       supports_testnet=False, aliases=("BINANCETH", "BINANCE_TH"),
-                       custom="THExchange",
-                       note="real money only; no testnet; uses bot/th_exchange.py"),
+    "binanceth": Venue(
+        "binanceth",
+        "",
+        "BINANCETH",
+        "Binance TH (THB, real money only)",
+        supports_testnet=False,
+        aliases=("BINANCETH", "BINANCE_TH"),
+        custom="THExchange",
+        note="real money only; no testnet; uses bot/th_exchange.py",
+    ),
 }
 
 DEFAULT_VENUE = "binance"

@@ -1,4 +1,5 @@
 """SQLite persistence: trade journal + bot state (survives restarts)."""
+
 from __future__ import annotations
 
 import json
@@ -56,7 +57,8 @@ class Store:
         with self._lock:
             if limit:
                 cur = self.db.execute(
-                    "SELECT * FROM (SELECT * FROM trades ORDER BY id DESC LIMIT ?) ORDER BY id", (limit,))
+                    "SELECT * FROM (SELECT * FROM trades ORDER BY id DESC LIMIT ?) ORDER BY id", (limit,)
+                )
             else:
                 cur = self.db.execute("SELECT * FROM trades ORDER BY id")
             names = [d[0] for d in cur.description]
@@ -73,8 +75,9 @@ class Store:
     def put_many(self, items: dict) -> None:
         """Write several keys in ONE transaction (all or nothing)."""
         with self._lock, self.db:
-            self.db.executemany("INSERT OR REPLACE INTO state (k, v) VALUES (?, ?)",
-                                [(k, json.dumps(v)) for k, v in items.items()])
+            self.db.executemany(
+                "INSERT OR REPLACE INTO state (k, v) VALUES (?, ?)", [(k, json.dumps(v)) for k, v in items.items()]
+            )
 
     def delete(self, key: str) -> None:
         with self._lock, self.db:
@@ -82,8 +85,7 @@ class Store:
 
     def log_equity(self, ts: str, equity: float, price: float) -> None:
         with self._lock, self.db:
-            self.db.execute("INSERT OR REPLACE INTO equity (ts, equity, price) VALUES (?, ?, ?)",
-                            (ts, equity, price))
+            self.db.execute("INSERT OR REPLACE INTO equity (ts, equity, price) VALUES (?, ?, ?)", (ts, equity, price))
 
     def equity_series(self, limit: int = 2000) -> list[dict]:
         with self._lock:

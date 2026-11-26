@@ -7,6 +7,7 @@ converted here. Every archive is verified against its published SHA-256 checksum
 
 No network is used on import — the conversion helpers are importable by tests.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -40,7 +41,11 @@ def parse_kline(line: str) -> list:
     try:
         return [
             normalize_timestamp(parts[0]),
-            float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4]), float(parts[5]),
+            float(parts[1]),
+            float(parts[2]),
+            float(parts[3]),
+            float(parts[4]),
+            float(parts[5]),
         ]
     except ValueError as exc:
         raise ValueError(f"malformed kline row: {line!r}") from exc
@@ -100,7 +105,7 @@ def build_url(kind: str, period: str, symbol: str, interval: str, base: str = BA
 def _fetch(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})  # noqa: S310 - https only
     with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 - fixed https URL
-        return response.read()
+        return response.read()  # type: ignore[no-any-return]
 
 
 def download_verified(url: str, cache: Path) -> bytes:
@@ -151,8 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         print("no klines found for the requested range", file=sys.stderr)
         return 1
     first_ms, last_ms = min(row[0] for row in rows), max(row[0] for row in rows)
-    print(f"{args.symbol} {args.interval}: {count} candles -> {args.out} "
-          f"({first_ms} .. {last_ms} ms)")
+    print(f"{args.symbol} {args.interval}: {count} candles -> {args.out} ({first_ms} .. {last_ms} ms)")
     return 0
 
 

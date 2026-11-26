@@ -1,4 +1,5 @@
 """Position sizing, stop/take-profit levels and account-level kill switches."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
@@ -8,14 +9,14 @@ DAILY_PREFIX = "daily"
 
 @dataclass
 class RiskConfig:
-    risk_per_trade_pct: float = 1.0     # % of equity lost if the stop is hit
-    stop_loss_pct: float = 2.0          # stop distance from entry
+    risk_per_trade_pct: float = 1.0  # % of equity lost if the stop is hit
+    stop_loss_pct: float = 2.0  # stop distance from entry
     take_profit_pct: float | None = 4.0
     trailing_stop_pct: float | None = None
-    max_position_pct: float = 25.0      # cap on % of equity in one position
-    max_daily_loss_pct: float = 3.0     # stop opening trades after this daily drawdown
+    max_position_pct: float = 25.0  # cap on % of equity in one position
+    max_daily_loss_pct: float = 3.0  # stop opening trades after this daily drawdown
     max_trades_per_day: int = 10
-    cooldown_bars: int = 2              # bars to wait after an exit
+    cooldown_bars: int = 2  # bars to wait after an exit
     # stop opening trades (until `run.py resume`) once equity falls this far below its peak
     max_drawdown_halt_pct: float | None = None
 
@@ -53,7 +54,7 @@ class RiskConfig:
 class Position:
     qty: float
     entry_price: float
-    cost_quote: float          # quote spent including fees
+    cost_quote: float  # quote spent including fees
     stop: float
     take: float | None
     peak: float

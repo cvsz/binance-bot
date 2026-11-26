@@ -11,20 +11,27 @@ from tests.test_bot import synthetic
 
 class FakeExchange:
     """Minimal ccxt-like exchange replaying synthetic candles (same call signatures as ccxt)."""
+
     id = "fake"
     rateLimit = 0
 
     def __init__(self, df):
         self.df, self.i = df, 300
         self.base, self.quote = 0.0, 1000.0
-        self.markets = {"BTC/USDT": {"spot": True, "base": "BTC", "quote": "USDT",
-                                     "limits": {"cost": {"min": 5}, "amount": {"min": 1e-5}}}}
+        self.markets = {
+            "BTC/USDT": {
+                "spot": True,
+                "base": "BTC",
+                "quote": "USDT",
+                "limits": {"cost": {"min": 5}, "amount": {"min": 1e-5}},
+            }
+        }
         self.orders: dict[str, dict] = {}
-        self.fail_submit_after_fill = False   # simulate timeout AFTER the exchange accepted the order
+        self.fail_submit_after_fill = False  # simulate timeout AFTER the exchange accepted the order
         self.fail_submit_before_fill = False  # simulate timeout BEFORE the order reached the exchange
         self.fail_lookup = False
         self.fail_balance_after_order = False
-        self.submit_error: Exception | None = None      # raised AFTER the exchange accepted the order
+        self.submit_error: Exception | None = None  # raised AFTER the exchange accepted the order
         self.pre_submit_error: Exception | None = None  # raised BEFORE the order reached the exchange
         self._balance_broken = False
 
@@ -38,7 +45,7 @@ class FakeExchange:
         return self.markets
 
     def fetch_ohlcv(self, symbol, tf, since=None, limit=500):
-        d = self.df.iloc[max(0, self.i + 1 - limit): self.i + 1]
+        d = self.df.iloc[max(0, self.i + 1 - limit) : self.i + 1]
         cols = d[["open", "high", "low", "close", "volume"]].values.tolist()
         return [[ts.value // 1_000_000, *row] for ts, row in zip(d.index, cols, strict=True)]
 
@@ -82,8 +89,15 @@ class FakeExchange:
             qty = cost * 0.999 / px
             self.quote -= cost
             self.base += qty
-            return {"id": f"b{len(self.orders)}", "average": px, "filled": cost / px, "cost": cost,
-                    "status": "closed", "fee": {"currency": "BTC", "cost": cost / px - qty}}
+            return {
+                "id": f"b{len(self.orders)}",
+                "average": px,
+                "filled": cost / px,
+                "cost": cost,
+                "status": "closed",
+                "fee": {"currency": "BTC", "cost": cost / px - qty},
+            }
+
         return self._place("buy", params or {}, fill)
 
     def create_market_sell_order(self, s, amt, params=None):
@@ -91,8 +105,15 @@ class FakeExchange:
             px = self.fetch_ticker(s)["last"]
             self.base -= amt
             self.quote += amt * px * 0.999
-            return {"id": f"s{len(self.orders)}", "average": px, "filled": amt, "cost": amt * px,
-                    "status": "closed", "fee": {"currency": "USDT", "cost": amt * px * 0.001}}
+            return {
+                "id": f"s{len(self.orders)}",
+                "average": px,
+                "filled": amt,
+                "cost": amt * px,
+                "status": "closed",
+                "fee": {"currency": "USDT", "cost": amt * px * 0.001},
+            }
+
         return self._place("sell", params or {}, fill)
 
     def fetch_order(self, id, symbol=None, params=None):
@@ -154,9 +175,10 @@ def test_live_runner_with_fake_exchange(tmp_path):
 def test_live_restore_clears_missing_position(tmp_path):
     ex = FakeExchange(synthetic(600))
     store = Store()
-    store.put("position", {"qty": 1.0, "entry_price": 100, "cost_quote": 100, "stop": 98,
-                           "take": None, "peak": 100, "opened_at": "x"})
-    r = Runner(AppConfig(), "live", exchange=ex, broker=fast_broker(ex), store=store,
-               notifier=NullNotifier())
+    store.put(
+        "position",
+        {"qty": 1.0, "entry_price": 100, "cost_quote": 100, "stop": 98, "take": None, "peak": 100, "opened_at": "x"},
+    )
+    r = Runner(AppConfig(), "live", exchange=ex, broker=fast_broker(ex), store=store, notifier=NullNotifier())
     r.restore()
     assert r.engine.position is None

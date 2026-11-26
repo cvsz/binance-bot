@@ -5,6 +5,7 @@ Pattern ported from the MIT-licensed `zksato` project (github.com/cvsz/zksato,
 used by this bot. The goal is the same: an order whose outcome is unknown is
 never retried blindly, and each error class gets its own retry behaviour.
 """
+
 from __future__ import annotations
 
 import re
@@ -14,12 +15,13 @@ import ccxt
 
 
 class ErrorCategory(StrEnum):
-    TRANSIENT = "transient"       # backoff then retry
-    RATE_LIMITED = "rate_limited" # respect retry-after, then retry
-    AUTH_FAILED = "auth_failed"   # stop the bot, never retry
+    TRANSIENT = "transient"  # backoff then retry
+    RATE_LIMITED = "rate_limited"  # respect retry-after, then retry
+    AUTH_FAILED = "auth_failed"  # stop the bot, never retry
     INVALID_ORDER = "invalid_order"  # do not retry as-is
-    REJECTED = "rejected"         # do not retry as-is
-    UNKNOWN = "unknown"           # backoff, alert a human
+    REJECTED = "rejected"  # do not retry as-is
+    UNKNOWN = "unknown"  # backoff, alert a human
+
 
 # Fatal: retrying cannot fix these. Kept identical to the existing runner gate.
 FATAL_ERRORS = (ccxt.AuthenticationError, ccxt.AccountSuspended, ccxt.BadSymbol)

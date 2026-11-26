@@ -22,7 +22,7 @@ python run.py [-c CONFIG] [-v] <command> [options]
 | `health` | `--mode paper\|live` | `online` → exit 0; `stale`/`offline`/ไม่มี DB → exit 1 |
 | `resume` | `--mode paper\|live` | ขอปลด halt (บอทที่รันอยู่ใช้ในรอบถัดไป) |
 | `backup` | `--dir DIR` (`backups`) | backup ทุก DB ด้วย SQLite online backup API |
-| `dashboard` | `--host` (`127.0.0.1`), `--port` (8080) | web dashboard แบบอ่านอย่างเดียว |
+| `dashboard` | `--host` (`0.0.0.0`), `--port` (8080) | web dashboard แบบอ่านอย่างเดียว |
 
 `--mode live` จะหมายถึง DB ของ testnet อัตโนมัติเมื่อ `exchange.testnet: true`
 
@@ -49,7 +49,7 @@ python run.py [-c CONFIG] [-v] <command> [options]
 | `CSV` | — | backtest (ถ้าตั้ง จะใช้แทน `DAYS`) |
 | `OUT` | `reports` | backtest, clean-reports |
 | `VERBOSE` | — | `1` = ส่ง `-v` |
-| `HOST` / `PORT` | `127.0.0.1` / `8080` | dashboard |
+| `HOST` / `PORT` | `0.0.0.0` / `8080` | dashboard |
 | `ARGS` | — | ส่งต่อให้ pytest เช่น `ARGS="-k dust"` |
 | `SESSION` | `binance-bot-$(MODE)` | ชื่อ tmux session |
 | `BACKUP_DIR` | `backups` | backup |
@@ -113,5 +113,5 @@ Error: `401 {"error":"unauthorized"}`, `404 {"error":"no data for mode …"}` / 
 ตัวอย่าง:
 
 ```bash
-curl -s -H "X-Dashboard-Token: $DASHBOARD_TOKEN" "http://127.0.0.1:8080/api/summary?mode=paper" | python -m json.tool
+curl -s -H "X-Dashboard-Token: $DASHBOARD_TOKEN" "http://0.0.0.0:8080/api/summary?mode=paper" | python -m json.tool
 ```

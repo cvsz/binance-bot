@@ -150,7 +150,7 @@ Write-Host @"
 ║                                                                          ║
 ║  ⚠️  IMPORTANT SAFETY WARNINGS                                           ║
 ║   • Stop-loss is bot-side — if PC sleeps/network drops, stops won't work ║
-║   • Dashboard binds to 127.0.0.1:8080 by default — don't expose publicly ║
+║   • Dashboard binds to 0.0.0.0:8080 by default — set DASHBOARD_TOKEN for remote access ║
 ║   • Never commit .env or config.yaml to git                             ║
 ║   • Only trade money you can afford to lose                             ║
 ║                                                                          ║

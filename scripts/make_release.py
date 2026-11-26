@@ -20,6 +20,7 @@ Inno Setup Compiler on Windows.
 
 Excludes secrets, databases, logs, caches, and git internals.
 """
+
 from __future__ import annotations
 
 import zipfile
@@ -27,17 +28,39 @@ from datetime import date
 from pathlib import Path
 
 EXCLUDE_NAMES = {
-    ".git", ".gitignore", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache",
-    "data", "backups", "logs", "reports", ".env", "config.yaml",
+    ".git",
+    ".gitignore",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    "data",
+    "backups",
+    "logs",
+    "reports",
+    ".env",
+    "config.yaml",
 }
 EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".db", ".db-wal", ".db-shm", ".log"}
 
 INSTALLER_FILES = [
-    "bot", "run.py", "config.example.yaml", "requirements.txt",
-    "constraints.txt", "requirements-dev.txt", "run.bat",
-    "setup-windows.ps1", "README-WINDOWS.md", "README.md",
-    "AGENTS.md", "CHANGELOG.md", "pyproject.toml", "Makefile",
-    "docker-compose.yml", "Dockerfile", ".dockerignore",
+    "bot",
+    "run.py",
+    "config.example.yaml",
+    "requirements.txt",
+    "constraints.txt",
+    "requirements-dev.txt",
+    "run.bat",
+    "setup-windows.ps1",
+    "README-WINDOWS.md",
+    "README.md",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "pyproject.toml",
+    "Makefile",
+    "docker-compose.yml",
+    "Dockerfile",
+    ".dockerignore",
 ]
 
 
@@ -65,19 +88,15 @@ def main() -> int:
     today = date.today().strftime("%Y%m%d")
 
     # Full source zip (all non-secret files)
-    full_files = [
-        p for p in root.rglob("*")
-        if p.is_file() and not is_excluded(p, root)
-    ]
+    full_files = [p for p in root.rglob("*") if p.is_file() and not is_excluded(p, root)]
     zip_files(full_files, root, out_dir / f"binance-bot-windows-{today}.zip")
 
     # Installer package (curated subset + installer scripts)
-    installer_files = [
-        root / f for f in INSTALLER_FILES if (root / f).exists()
-    ] + [root / "installer" / "install-windows.ps1",
-         root / "installer" / "setup-windows.iss"]
-    zip_files(installer_files, root,
-              out_dir / f"binance-bot-windows-installer-{today}.zip")
+    installer_files = [root / f for f in INSTALLER_FILES if (root / f).exists()] + [
+        root / "installer" / "install-windows.ps1",
+        root / "installer" / "setup-windows.iss",
+    ]
+    zip_files(installer_files, root, out_dir / f"binance-bot-windows-installer-{today}.zip")
 
     print(f"release: {out_dir / f'binance-bot-windows-{today}.zip'}")
     print(f"release: {out_dir / f'binance-bot-windows-installer-{today}.zip'}")

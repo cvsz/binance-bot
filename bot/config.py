@@ -1,4 +1,5 @@
 """Configuration loading (YAML for settings, environment/.env for secrets)."""
+
 from __future__ import annotations
 
 import os
@@ -47,7 +48,8 @@ class AppConfig:
         if self.testnet and not venue.supports_testnet:
             raise ValueError(
                 f"exchange.name={venue.id} has no testnet: set exchange.testnet: false "
-                f"(this venue trades REAL MONEY only)")
+                f"(this venue trades REAL MONEY only)"
+            )
         if not SYMBOL_RE.match(self.symbol):
             raise ValueError(f"symbol must look like BASE/QUOTE (e.g. BTC/USDT), got {self.symbol!r}")
         if not TIMEFRAME_RE.match(self.timeframe):

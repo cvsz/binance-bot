@@ -1,4 +1,5 @@
 """Production-hardening regression tests: fill confirmation, stop reasons, reconciliation."""
+
 import sqlite3
 import time
 from pathlib import Path
@@ -56,15 +57,14 @@ class PartialExchange(FakeExchange):
             return {"free": {"BTC": 0.0, "USDT": 1000.0}}
         if self.reads == 2:
             return {"free": {"BTC": 0.4, "USDT": 960.0}}  # partial fill
-        return {"free": {"BTC": 0.999, "USDT": 900.0}}     # full fill
+        return {"free": {"BTC": 0.999, "USDT": 900.0}}  # full fill
 
 
 def test_settle_waits_for_full_fill_not_first_delta():
     ex = PartialExchange(synthetic(600))
-    broker = LiveBroker(ex, "BTC/USDT", settle_attempts=3, settle_delay=0,
-                        lookup_attempts=2, lookup_delay=0)
+    broker = LiveBroker(ex, "BTC/USDT", settle_attempts=3, settle_delay=0, lookup_attempts=2, lookup_delay=0)
     fill = broker.buy_quote(100, 100)
-    assert fill.qty == pytest.approx(0.999)   # not the partial 0.4
+    assert fill.qty == pytest.approx(0.999)  # not the partial 0.4
     assert ex.reads >= 3
 
 
@@ -100,8 +100,7 @@ def test_sell_unknown_state_halts_then_recovers_pnl():
     ex.fail_lookup = True
     e = live_engine(ex)
     ex.base = 1.0
-    e.position = Position(qty=1.0, entry_price=100, cost_quote=100, stop=98, take=None,
-                          peak=100, opened_at="x")
+    e.position = Position(qty=1.0, entry_price=100, cost_quote=100, stop=98, take=None, peak=100, opened_at="x")
     e.on_price("t", low=97, high=97)  # stop hit -> sell with unknown result
     assert e.position is not None
     assert e.position.pending_order_id
@@ -115,13 +114,16 @@ def test_sell_unknown_state_halts_then_recovers_pnl():
     assert sell["side"] == "sell" and sell["pnl_quote"] is not None
 
 
-@pytest.mark.parametrize("exc,category", [
-    (ccxt.NetworkError("network down"), ErrorCategory.TRANSIENT),
-    (ccxt.RateLimitExceeded("rate limit"), ErrorCategory.RATE_LIMITED),
-    (ccxt.InsufficientFunds("not enough balance"), ErrorCategory.REJECTED),
-    (ccxt.AuthenticationError("bad key"), ErrorCategory.AUTH_FAILED),
-    (RuntimeError("something odd"), ErrorCategory.UNKNOWN),
-])
+@pytest.mark.parametrize(
+    "exc,category",
+    [
+        (ccxt.NetworkError("network down"), ErrorCategory.TRANSIENT),
+        (ccxt.RateLimitExceeded("rate limit"), ErrorCategory.RATE_LIMITED),
+        (ccxt.InsufficientFunds("not enough balance"), ErrorCategory.REJECTED),
+        (ccxt.AuthenticationError("bad key"), ErrorCategory.AUTH_FAILED),
+        (RuntimeError("something odd"), ErrorCategory.UNKNOWN),
+    ],
+)
 def test_error_classification(exc, category):
     assert classify_error(exc) is category
 
@@ -154,8 +156,7 @@ def test_known_rejection_is_not_treated_as_ambiguous():
 
 
 def test_rejected_order_does_not_escalate_backoff():
-    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)),
-               store=Store(), notifier=NullNotifier())
+    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)), store=Store(), notifier=NullNotifier())
 
     def reject():
         raise ccxt.InsufficientFunds("no balance")
@@ -165,8 +166,7 @@ def test_rejected_order_does_not_escalate_backoff():
 
 
 def test_rate_limit_honours_retry_after():
-    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)),
-               store=Store(), notifier=NullNotifier())
+    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)), store=Store(), notifier=NullNotifier())
 
     def limited():
         raise ccxt.RateLimitExceeded("retry-after: 120")
@@ -182,14 +182,16 @@ def test_cli_live_gate_refuses_without_keys(tmp_path, monkeypatch):
     assert run.main(["-c", str(cfg), "live"]) == 2
 
 
-@pytest.mark.parametrize("error", [
-    ccxt.AuthenticationError("bad key"),
-    ccxt.AccountSuspended("suspended"),
-    ccxt.BadSymbol("bad symbol"),
-])
+@pytest.mark.parametrize(
+    "error",
+    [
+        ccxt.AuthenticationError("bad key"),
+        ccxt.AccountSuspended("suspended"),
+        ccxt.BadSymbol("bad symbol"),
+    ],
+)
 def test_all_fatal_exchange_errors_stop_with_exit_3(error):
-    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)),
-               store=Store(), notifier=NullNotifier())
+    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)), store=Store(), notifier=NullNotifier())
 
     def fatal():
         raise error
@@ -199,16 +201,26 @@ def test_all_fatal_exchange_errors_stop_with_exit_3(error):
     assert r._stop and r.exit_code == 3
 
 
-@pytest.mark.parametrize("field,value", [
-    ("stop_loss_pct", 0), ("stop_loss_pct", 100),
-    ("risk_per_trade_pct", 0), ("risk_per_trade_pct", 6),
-    ("max_position_pct", 0), ("max_position_pct", 101),
-    ("take_profit_pct", -1),
-    ("trailing_stop_pct", 0), ("trailing_stop_pct", 100),
-    ("max_daily_loss_pct", 0), ("max_daily_loss_pct", 101),
-    ("max_drawdown_halt_pct", 0), ("max_drawdown_halt_pct", 101),
-    ("max_trades_per_day", 0), ("cooldown_bars", -1),
-])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("stop_loss_pct", 0),
+        ("stop_loss_pct", 100),
+        ("risk_per_trade_pct", 0),
+        ("risk_per_trade_pct", 6),
+        ("max_position_pct", 0),
+        ("max_position_pct", 101),
+        ("take_profit_pct", -1),
+        ("trailing_stop_pct", 0),
+        ("trailing_stop_pct", 100),
+        ("max_daily_loss_pct", 0),
+        ("max_daily_loss_pct", 101),
+        ("max_drawdown_halt_pct", 0),
+        ("max_drawdown_halt_pct", 101),
+        ("max_trades_per_day", 0),
+        ("cooldown_bars", -1),
+    ],
+)
 def test_risk_config_rejects_invalid_values(field, value):
     with pytest.raises(ValueError):
         RiskConfig(**{field: value})
@@ -217,16 +229,14 @@ def test_risk_config_rejects_invalid_values(field, value):
 def test_put_many_rolls_back_on_error(tmp_path):
     s = Store(tmp_path / "x.db")
     s.put("keep", 1)
-    s.db.execute("CREATE TRIGGER fail_b BEFORE INSERT ON state WHEN NEW.k='b' "
-                 "BEGIN SELECT RAISE(ABORT, 'boom'); END;")
+    s.db.execute("CREATE TRIGGER fail_b BEFORE INSERT ON state WHEN NEW.k='b' BEGIN SELECT RAISE(ABORT, 'boom'); END;")
     with pytest.raises(sqlite3.IntegrityError):
         s.put_many({"a": 1, "b": 2})
     assert s.get("a") is None and s.get("keep") == 1
 
 
 def test_backoff_caps_at_600():
-    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)),
-               store=Store(), notifier=NullNotifier())
+    r = Runner(AppConfig(), "paper", exchange=FakeExchange(synthetic(600)), store=Store(), notifier=NullNotifier())
 
     def outage():
         raise ccxt.NetworkError("network down")
@@ -286,10 +296,11 @@ def test_position_quantity_mismatch_halts(tmp_path):
     ex = FakeExchange(synthetic(600))
     ex.base = 0.7
     store = Store(tmp_path / "s.db")
-    store.put("position", {"qty": 1.0, "entry_price": 100, "cost_quote": 100, "stop": 98,
-                           "take": None, "peak": 100, "opened_at": "x"})
-    r = Runner(AppConfig(), "live", exchange=ex, broker=fast_broker(ex), store=store,
-               notifier=RecordingNotifier())
+    store.put(
+        "position",
+        {"qty": 1.0, "entry_price": 100, "cost_quote": 100, "stop": 98, "take": None, "peak": 100, "opened_at": "x"},
+    )
+    r = Runner(AppConfig(), "live", exchange=ex, broker=fast_broker(ex), store=store, notifier=RecordingNotifier())
     r.restore()
     assert "mismatch" in r.engine.risk.state.halted_reason
 
@@ -298,10 +309,11 @@ def test_small_quantity_difference_is_tolerated(tmp_path):
     ex = FakeExchange(synthetic(600))
     ex.base = 0.999
     store = Store(tmp_path / "s.db")
-    store.put("position", {"qty": 1.0, "entry_price": 100, "cost_quote": 100, "stop": 98,
-                           "take": None, "peak": 100, "opened_at": "x"})
-    r = Runner(AppConfig(), "live", exchange=ex, broker=fast_broker(ex), store=store,
-               notifier=NullNotifier())
+    store.put(
+        "position",
+        {"qty": 1.0, "entry_price": 100, "cost_quote": 100, "stop": 98, "take": None, "peak": 100, "opened_at": "x"},
+    )
+    r = Runner(AppConfig(), "live", exchange=ex, broker=fast_broker(ex), store=store, notifier=NullNotifier())
     r.restore()
     assert r.engine.risk.state.halted_reason is None
     assert r.engine.position is not None
@@ -310,17 +322,14 @@ def test_small_quantity_difference_is_tolerated(tmp_path):
 def test_untracked_wallet_balance_halts_entries():
     ex = FakeExchange(synthetic(600))
     ex.base = 1.0  # coins in wallet but no stored position
-    r = Runner(AppConfig(), "live", exchange=ex, broker=fast_broker(ex),
-               store=Store(), notifier=RecordingNotifier())
+    r = Runner(AppConfig(), "live", exchange=ex, broker=fast_broker(ex), store=Store(), notifier=RecordingNotifier())
     r.restore()
     assert r.engine.position is None
     assert "untracked" in r.engine.risk.state.halted_reason
     assert any("HALTED" in m for m in r.engine.notifier.msgs)
 
 
-FAKE_ED25519_PEM = (
-    "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIFakeFake\n-----END PRIVATE KEY-----"
-)
+FAKE_ED25519_PEM = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIFakeFake\n-----END PRIVATE KEY-----"
 
 
 def test_ccxt_signing_uses_eddsa_for_pem_secret():
@@ -344,10 +353,7 @@ def test_ccxt_signing_uses_hmac_for_plain_secret():
 def test_dotenv_reads_multiline_pem(tmp_path):
     env = tmp_path / "env.test"
     env.write_text(
-        'BINANCE_API_KEY=k\n'
-        'BINANCE_API_SECRET="-----BEGIN PRIVATE KEY-----\n'
-        'ABC\n'
-        '-----END PRIVATE KEY-----"\n'
+        'BINANCE_API_KEY=k\nBINANCE_API_SECRET="-----BEGIN PRIVATE KEY-----\nABC\n-----END PRIVATE KEY-----"\n'
     )
     value = dotenv_values(env)["BINANCE_API_SECRET"]
     assert "PRIVATE KEY" in value and value.count("\n") == 2
@@ -441,11 +447,14 @@ def test_example_config_loads_with_all_risk_keys():
     assert cfg.testnet is True
 
 
-@pytest.mark.parametrize("body", [
-    "testnetz: true\n",
-    "exchange:\n  testnet: true\n  tyop: 1\n",
-    "loop:\n  poll_second: 30\n",
-])
+@pytest.mark.parametrize(
+    "body",
+    [
+        "testnetz: true\n",
+        "exchange:\n  testnet: true\n  tyop: 1\n",
+        "loop:\n  poll_second: 30\n",
+    ],
+)
 def test_config_rejects_unknown_keys(tmp_path, body):
     with pytest.raises(ValueError, match="unknown"):
         load_config(write_cfg(tmp_path, body=body))

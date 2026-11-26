@@ -3,6 +3,7 @@
 It only reads the bot's SQLite database, so it can run in a separate process or
 container and can never place or cancel orders.
 """
+
 from __future__ import annotations
 
 import hmac
@@ -105,9 +106,11 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Content-Security-Policy",
-                             "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                             "style-src 'self' 'unsafe-inline'; connect-src 'self'")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; connect-src 'self'",
+            )
             self.end_headers()
             self.wfile.write(body)
 
@@ -160,7 +163,7 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
                 "# TYPE bot_position_qty gauge",
             ]
             if pos:
-                lines.append(f'bot_position_qty{{symbol="{pos.get("symbol","unknown")}"}} {pos.get("qty",0)}')
+                lines.append(f'bot_position_qty{{symbol="{pos.get("symbol", "unknown")}"}} {pos.get("qty", 0)}')
             else:
                 lines.append('bot_position_qty{symbol=""} 0')
             lines += [
@@ -221,13 +224,13 @@ def make_handler(db_paths: dict[str, Path], token: str | None):
     return Handler
 
 
-def serve(db_paths: dict[str, Path], host: str = "127.0.0.1", port: int = 8080) -> None:
+def serve(db_paths: dict[str, Path], host: str = "0.0.0.0", port: int = 8080) -> None:  # noqa: S104 - intentional: Docker binds 0.0.0.0; DASHBOARD_TOKEN required for non-loopback
     token = os.getenv("DASHBOARD_TOKEN") or None
     if host not in LOOPBACK and not token:
         raise PermissionError("binding to a non-local address requires DASHBOARD_TOKEN to be set")
     httpd = ThreadingHTTPServer((host, port), make_handler(db_paths, token))
     url = f"http://{'localhost' if host in LOOPBACK else host}:{port}/" + ("?token=<DASHBOARD_TOKEN>" if token else "")
-    print(f"dashboard: {url}  (Ctrl+C to stop)")
+    log.info("dashboard: %s  (Ctrl+C to stop)", url)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

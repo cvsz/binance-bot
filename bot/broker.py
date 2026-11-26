@@ -1,4 +1,5 @@
 """Order execution: PaperBroker (simulated) and LiveBroker (Binance via ccxt)."""
+
 from __future__ import annotations
 
 import logging
@@ -16,9 +17,9 @@ log = logging.getLogger(__name__)
 @dataclass
 class Fill:
     side: str
-    qty: float          # base units actually received (buy) or sold (sell)
-    price: float        # average fill price
-    quote: float        # quote spent (buy, incl. fees) or received (sell, net of fees)
+    qty: float  # base units actually received (buy) or sold (sell)
+    price: float  # average fill price
+    quote: float  # quote spent (buy, incl. fees) or received (sell, net of fees)
     order_id: str = ""
 
 
@@ -104,9 +105,16 @@ class LiveBroker:
 
     live = True
 
-    def __init__(self, exchange, symbol: str, settle_attempts: int = 5, settle_delay: float = 1.0,
-                 lookup_attempts: int = 3, lookup_delay: float = 2.0,
-                 balance_cache_ttl: float = 5.0):
+    def __init__(
+        self,
+        exchange,
+        symbol: str,
+        settle_attempts: int = 5,
+        settle_delay: float = 1.0,
+        lookup_attempts: int = 3,
+        lookup_delay: float = 2.0,
+        balance_cache_ttl: float = 5.0,
+    ):
         self.ex = exchange
         self.symbol = symbol
         self.settle_attempts, self.settle_delay = settle_attempts, settle_delay
@@ -160,7 +168,7 @@ class LiveBroker:
         """
         cid = self._client_id(side)
         try:
-            return create({"newClientOrderId": cid})
+            return create({"newClientOrderId": cid})  # type: ignore[no-any-return]
         except DEFINITE_REJECTIONS as exc:
             # Authentication/symbol failures stay fatal. Other known rejections
             # mean the order was definitely NOT placed, so translate them into a
@@ -177,16 +185,17 @@ class LiveBroker:
                 time.sleep(self.lookup_delay * (attempt + 1))
                 try:
                     order = self.ex.fetch_order("", self.symbol, {"clientOrderId": cid})
-                    log.warning("%s order %s was placed despite the error (status=%s)", side, cid,
-                                order.get("status"))
-                    return order
+                    log.warning("%s order %s was placed despite the error (status=%s)", side, cid, order.get("status"))
+                    return order  # type: ignore[no-any-return]
                 except ccxt.OrderNotFound:
                     raise BrokerError(f"{side} order not placed: {exc}") from exc
                 except ccxt.NetworkError:
                     continue
             raise OrderStateUnknown(
                 f"{side} order {cid} submitted but its state is unknown after {self.lookup_attempts} lookups "
-                f"- check open orders/balances on Binance", client_order_id=cid) from exc
+                f"- check open orders/balances on Binance",
+                client_order_id=cid,
+            ) from exc
 
     def _settle(self, before: tuple[float, float], expected: float, side: str) -> tuple[float, float] | None:
         """Wait for the wallet to reflect the WHOLE fill, not just a partial change.
@@ -261,7 +270,8 @@ class LiveBroker:
                     raise BrokerError(f"buy order {order.get('id')} {order.get('status')} with no fill")
                 raise OrderStateUnknown(
                     f"buy order {order.get('id')} accepted but fill could not be confirmed",
-                    client_order_id=order.get("clientOrderId")) from None
+                    client_order_id=order.get("clientOrderId"),
+                ) from None
             log.warning("buy fill taken from order response (balances unavailable)")
         avg = order.get("average") or (spent / qty)
         log.info("LIVE BUY %s qty=%.8f avg=%.8f spent=%.4f", self.symbol, qty, avg, spent)
@@ -271,13 +281,13 @@ class LiveBroker:
     def sell_qty(self, qty: float, price: float) -> Fill:
         before = self.balances()
         if before[0] < qty * 0.5:
-            raise PositionMissingError(
-                f"wallet holds {before[0]:.8f} {self.base_ccy}, position is {qty:.8f}")
+            raise PositionMissingError(f"wallet holds {before[0]:.8f} {self.base_ccy}, position is {qty:.8f}")
         qty = min(qty, before[0])
         min_cost, min_amt = self.min_order_quote(), self._limit("amount")
         if qty * price < min_cost or (min_amt and qty < min_amt):
-            raise DustError(f"{qty:.8f} {self.base_ccy} (~{qty * price:.2f} {self.quote_ccy}) "
-                            f"is below the exchange minimum")
+            raise DustError(
+                f"{qty:.8f} {self.base_ccy} (~{qty * price:.2f} {self.quote_ccy}) is below the exchange minimum"
+            )
         try:
             amount = float(self.ex.amount_to_precision(self.symbol, qty))
         except ccxt.InvalidOrder as exc:
@@ -295,7 +305,8 @@ class LiveBroker:
                     raise BrokerError(f"sell order {order.get('id')} {order.get('status')} with no fill")
                 raise OrderStateUnknown(
                     f"sell order {order.get('id')} accepted but fill could not be confirmed",
-                    client_order_id=order.get("clientOrderId")) from None
+                    client_order_id=order.get("clientOrderId"),
+                ) from None
             log.warning("sell fill taken from order response (balances unavailable)")
         avg = order.get("average") or (received / sold if sold else price)
         log.info("LIVE SELL %s qty=%.8f avg=%.8f received=%.4f", self.symbol, sold, avg, received)

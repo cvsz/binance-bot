@@ -30,10 +30,10 @@ services:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
     ports:
-      - "127.0.0.1:8080:8080"   # local only; use an SSH/Cloudflare tunnel for remote access
+      - "0.0.0.0:8080:8080"   # bind all interfaces; use SSH/Cloudflare tunnel for remote access
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=5)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://0.0.0.0:8080/healthz', timeout=5)"]
       interval: 60s
       timeout: 10s
       retries: 3

@@ -102,11 +102,11 @@ which includes:
 ## Safety
 
 - **Stop-loss is bot-side** — if this Windows machine sleeps or loses network, stops do **not** run on Binance.
-- **Dashboard binds to `127.0.0.1:8080` by default** — use SSH tunnel or Cloudflare Tunnel for remote access; do not expose directly to the internet.
+- **Dashboard binds to `0.0.0.0:8080` by default** — set `DASHBOARD_TOKEN` for remote access; use SSH tunnel or Cloudflare Tunnel for additional security.
 - **Never commit `.env`, `config.yaml`, or `data/*.db` to git.**
 
 ## Safety
 
 - Stop-loss is **bot-side** — if this Windows machine sleeps or loses network, stops do **not** run on Binance.
-- Dashboard is **read-only** and binds to `127.0.0.1` by default.
+- Dashboard is **read-only** and binds to `0.0.0.0` by default.
 - Never commit `.env`, `config.yaml`, or `data/*.db` to git.

@@ -1,4 +1,5 @@
 """Causal technical indicators (each value uses only past/current bars - no lookahead)."""
+
 from __future__ import annotations
 
 import numpy as np

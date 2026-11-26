@@ -4,6 +4,7 @@
 Anchors are resolved against explicit `<a id="...">` tags and ASCII heading slugs
 (GitHub style). Exit 1 if anything is broken.
 """
+
 from __future__ import annotations
 
 import re

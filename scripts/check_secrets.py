@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fail if secrets could leak: sensitive files tracked by git, .env readable by others,
 or credential-looking values in tracked files. Never prints secret values."""
+
 from __future__ import annotations
 
 import re
@@ -12,8 +13,7 @@ from pathlib import Path
 FORBIDDEN_TRACKED = re.compile(r"(^|/)(\.env(\..+)?|config\.yaml|[^/]+\.db(-wal|-shm)?)$")
 ALLOWED_TRACKED = {".env.example", "config.example.yaml"}
 # KEY=value / key: value with a long token-like value (Binance keys are 64 chars)
-CRED_RE = re.compile(
-    r"(?i)(api[_-]?key|api[_-]?secret|secret|token|password)\s*[=:]\s*['\"]?([A-Za-z0-9_\-]{24,})")
+CRED_RE = re.compile(r"(?i)(api[_-]?key|api[_-]?secret|secret|token|password)\s*[=:]\s*['\"]?([A-Za-z0-9_\-]{24,})")
 PLACEHOLDER_RE = re.compile(r"[A-Z0-9_]+")  # env-var names / constants, not values
 
 
@@ -62,8 +62,8 @@ def main(root: Path) -> int:
         mode = stat.S_IMODE(env.stat().st_mode)
         if mode & 0o077:
             problems.append(f".env permissions are {oct(mode)[2:]} (expected 600) -> make perms")
-    for p in problems:
-        print("SECRET-CHECK", p)
+    for problem in problems:
+        print("SECRET-CHECK", problem)
     print(f"secrets-check: {len(files)} files (tracked + untracked), {len(problems)} problem(s)")
     return 1 if problems else 0
 

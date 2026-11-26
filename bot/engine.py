@@ -1,4 +1,5 @@
 """Trading engine shared by backtest, paper and live modes (long-only spot)."""
+
 from __future__ import annotations
 
 import logging
@@ -18,8 +19,16 @@ LIVE_FEE_HEADROOM = 0.01
 
 
 class Engine:
-    def __init__(self, symbol: str, broker, risk: RiskManager, store: Store | None = None,
-                 notifier=None, mode: str = "paper", batch_mode: bool = False):
+    def __init__(
+        self,
+        symbol: str,
+        broker,
+        risk: RiskManager,
+        store: Store | None = None,
+        notifier=None,
+        mode: str = "paper",
+        batch_mode: bool = False,
+    ):
         self.symbol = symbol
         self.broker = broker
         self.risk = risk
@@ -84,13 +93,15 @@ class Engine:
     # ---- helpers ---------------------------------------------------------
     def equity(self, price: float) -> float:
         base, quote = self.broker.balances()
-        return base * price + quote
+        return base * price + quote  # type: ignore[no-any-return]
 
     def _halt(self, reason: str) -> None:
         self.risk.halt(reason)
         log.error("HALTED: %s", reason)
-        self.notifier.send(f"[{self.mode}] ⛔ HALTED {self.symbol}: {reason}\n"
-                           f"Fix the account, then run: python run.py resume --mode <mode>")
+        self.notifier.send(
+            f"[{self.mode}] ⛔ HALTED {self.symbol}: {reason}\n"
+            f"Fix the account, then run: python run.py resume --mode <mode>"
+        )
         self.save()
 
     def _enter(self, ts: str, price: float) -> None:
@@ -114,26 +125,56 @@ class Engine:
             log.warning("%s buy failed: %s", ts, exc)
             return
         stop, take = self.risk.levels(fill.price)
-        self.position = Position(qty=fill.qty, entry_price=fill.price, cost_quote=fill.quote,
-                                 stop=stop, take=take, peak=fill.price, opened_at=ts,
-                                 pending_order_id=None)
+        self.position = Position(
+            qty=fill.qty,
+            entry_price=fill.price,
+            cost_quote=fill.quote,
+            stop=stop,
+            take=take,
+            peak=fill.price,
+            opened_at=ts,
+            pending_order_id=None,
+        )
         self.risk.record_entry()
         self._mark_dirty()
         self.save()  # persist the position before anything else can fail
-        self.store.log_trade(ts=ts, mode=self.mode, symbol=self.symbol, side="buy", qty=fill.qty,
-                             price=fill.price, quote=fill.quote, reason="signal", pnl_quote=None,
-                             order_id=fill.order_id)
-        self.notifier.send(f"[{self.mode}] BUY {self.symbol} qty={fill.qty:.6f} @ {fill.price:.4f} "
-                           f"SL={stop:.4f} TP={take if take is None else round(take, 4)}")
+        self.store.log_trade(
+            ts=ts,
+            mode=self.mode,
+            symbol=self.symbol,
+            side="buy",
+            qty=fill.qty,
+            price=fill.price,
+            quote=fill.quote,
+            reason="signal",
+            pnl_quote=None,
+            order_id=fill.order_id,
+        )
+        self.notifier.send(
+            f"[{self.mode}] BUY {self.symbol} qty={fill.qty:.6f} @ {fill.price:.4f} "
+            f"SL={stop:.4f} TP={take if take is None else round(take, 4)}"
+        )
 
     def _drop_position(self, ts: str, reason: str, detail: str) -> None:
         pos = self.position
+        if pos is None:
+            return
         self.position = None
         self.risk.record_exit(self.bar_index)
         self._mark_dirty()
         self.save()
-        self.store.log_trade(ts=ts, mode=self.mode, symbol=self.symbol, side="abandon", qty=pos.qty,
-                             price=None, quote=None, reason=reason, pnl_quote=None, order_id="")
+        self.store.log_trade(
+            ts=ts,
+            mode=self.mode,
+            symbol=self.symbol,
+            side="abandon",
+            qty=pos.qty,
+            price=None,
+            quote=None,
+            reason=reason,
+            pnl_quote=None,
+            order_id="",
+        )
         log.error("%s position dropped (%s): %s", ts, reason, detail)
         self.notifier.send(f"[{self.mode}] ⚠️ position {self.symbol} dropped ({reason}): {detail}")
 
@@ -144,13 +185,24 @@ class Engine:
         self.risk.record_exit(self.bar_index)
         self._mark_dirty()
         self.save()
-        self.store.log_trade(ts=ts, mode=self.mode, symbol=self.symbol, side="sell", qty=fill.qty,
-                             price=fill.price, quote=fill.quote, reason=reason, pnl_quote=pnl,
-                             order_id=fill.order_id)
+        self.store.log_trade(
+            ts=ts,
+            mode=self.mode,
+            symbol=self.symbol,
+            side="sell",
+            qty=fill.qty,
+            price=fill.price,
+            quote=fill.quote,
+            reason=reason,
+            pnl_quote=pnl,
+            order_id=fill.order_id,
+        )
         self.notifier.send(f"[{self.mode}] SELL {self.symbol} ({reason}) @ {fill.price:.4f} PnL={pnl:+.2f}")
 
     def _exit(self, ts: str, price: float, reason: str) -> None:
         pos = self.position
+        if pos is None:
+            return
         # A previous sell may have filled while its result was lost. Reconcile by
         # client order id BEFORE retrying, so the wallet looks empty but the PnL is
         # still recorded instead of the position being dropped as "missing".
@@ -221,8 +273,9 @@ class Engine:
         was_halted = self.risk.state.halted_reason
         self.risk.observe_equity(equity)
         if not was_halted and self.risk.state.halted_reason:
-            self.notifier.send(f"[{self.mode}] ⛔ {self.risk.state.halted_reason} - no new entries "
-                               f"until `python run.py resume`")
+            self.notifier.send(
+                f"[{self.mode}] ⛔ {self.risk.state.halted_reason} - no new entries until `python run.py resume`"
+            )
         if signal == SELL and self.position:
             self._exit(ts, price, "signal")
         elif signal == BUY and not self.position:

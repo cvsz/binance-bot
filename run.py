@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Binance spot trading bot.
 
-  python run.py backtest --days 180          # test a strategy on history
-  python run.py backtest --csv data.csv      # ...or on your own OHLCV CSV
-  python run.py paper                        # live prices, simulated money
-  python run.py live                         # Binance TESTNET orders (exchange.testnet: true)
-  python run.py live --real-money            # REAL orders (needs extra confirmation)
-  python run.py status --mode paper          # position, balances, recent trades
-  python run.py dashboard                    # web dashboard at http://localhost:8080
-  python run.py health --mode paper          # exit 0 if the bot's heartbeat is fresh (Docker/monitoring)
-  python run.py resume --mode live           # clear a kill-switch halt after checking the account
-  python run.py backup --dir backups         # consistent copy of every bot database (safe while running)
+python run.py backtest --days 180          # test a strategy on history
+python run.py backtest --csv data.csv      # ...or on your own OHLCV CSV
+python run.py paper                        # live prices, simulated money
+python run.py live                         # Binance TESTNET orders (exchange.testnet: true)
+python run.py live --real-money            # REAL orders (needs extra confirmation)
+python run.py status --mode paper          # position, balances, recent trades
+python run.py dashboard                    # web dashboard at http://localhost:8080
+python run.py health --mode paper          # exit 0 if the bot's heartbeat is fresh (Docker/monitoring)
+python run.py resume --mode live           # clear a kill-switch halt after checking the account
+python run.py backup --dir backups         # consistent copy of every bot database (safe while running)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -115,8 +116,10 @@ def cmd_resume(cfg, args) -> int:
     import pandas as pd
 
     s.put(RESUME_KEY, pd.Timestamp.now(tz="UTC").isoformat())
-    print(f"resume requested (was halted: {reason}).\n"
-          "A running bot applies it on its next poll; otherwise it applies on next start.")
+    print(
+        f"resume requested (was halted: {reason}).\n"
+        "A running bot applies it on its next poll; otherwise it applies on next start."
+    )
     return 0
 
 
@@ -129,13 +132,19 @@ def cmd_status(cfg, args) -> int:
         print(f"no state yet at {path}")
         return 1
     s = Store(path)
-    print(json.dumps({
-        "position": s.get("position"),
-        "risk": s.get("risk"),
-        "paper_balances": s.get("paper_balances"),
-        "last_bar": s.get("last_bar"),
-        "recent_trades": s.trades()[-10:],
-    }, indent=2, default=str))
+    print(
+        json.dumps(
+            {
+                "position": s.get("position"),
+                "risk": s.get("risk"),
+                "paper_balances": s.get("paper_balances"),
+                "last_bar": s.get("last_bar"),
+                "recent_trades": s.trades()[-10:],
+            },
+            indent=2,
+            default=str,
+        )
+    )
     return 0
 
 
@@ -203,14 +212,16 @@ def main(argv=None) -> int:
         sp = sub.add_parser(name)
         sp.add_argument("--mode", choices=["paper", "live"], default="paper")
     d = sub.add_parser("dashboard")
-    d.add_argument("--host", default="127.0.0.1")
+    d.add_argument("--host", default="0.0.0.0")  # noqa: S104 - intentional: Docker binds 0.0.0.0; DASHBOARD_TOKEN required for non-loopback
     d.add_argument("--port", type=int, default=8080)
     args = p.parse_args(argv)
 
     load_dotenv()
     log_format = os.getenv("LOG_FORMAT", "text").lower()
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+    )
     if log_format == "json":
         for handler in logging.getLogger().handlers:
             handler.setFormatter(JsonFormatter())

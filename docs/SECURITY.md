@@ -78,13 +78,13 @@ Binance มี 2 แบบ และ **บอทนี้รองรับท�
 ## Dashboard
 
 - **อ่านอย่างเดียว**: เปิด SQLite ด้วย `mode=ro` ไม่มี endpoint ที่ส่งคำสั่งเทรดหรือแก้สถานะ
-- **bind `127.0.0.1` เป็นค่าเริ่มต้น**; bind ที่อื่นต้องมี `DASHBOARD_TOKEN` ไม่งั้นไม่ยอมเริ่ม
+- **bind `0.0.0.0` เป็นค่าเริ่มต้น**; bind ที่อื่นต้องมี `DASHBOARD_TOKEN` ไม่งั้นไม่ยอมเริ่ม
 - Token เทียบด้วย `hmac.compare_digest` (กัน timing attack) รับทาง header `X-Dashboard-Token` หรือ query `?token=` (แนะนำ header เพื่อไม่ให้ token ติด history)
 - บอทเขียน log เฉพาะ path ของ request และซ่อน `token=…` ในข้อความอื่น → token ไม่รั่วผ่าน log ของบอทเอง (อย่างไรก็ตาม proxy/docs อื่นยังอาจเก็บ URL ได้)
 - Header ความปลอดภัย: CSP (`default-src 'self'`; อนุญาต `unsafe-inline` เฉพาะ `<style>`/`<script>` ที่เป็นไฟล์ของบอทเอง), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`
 - **ไม่มี HTTPS ในตัว** — token ใน URL อาจติดใน history/log ของ proxy → เข้าจากนอกเครื่องผ่าน **SSH tunnel** หรือ **Cloudflare Tunnel + Access** เท่านั้น อย่าเปิดพอร์ตตรงสู่อินเทอร์เน็ต
 - Docker: container `dashboard` ได้เฉพาะ `DASHBOARD_TOKEN` (ไม่ได้ `.env` ทั้งไฟล์) จึงไม่มี API key จริงอยู่ใน container ที่หันสู่อินเทอร์เน็ต
-- Docker เผยพอร์ตเฉพาะ `127.0.0.1:8080`
+- Docker เผยพอร์ต `0.0.0.0:8080` (ต้องตั้ง `DASHBOARD_TOKEN`)
 - `/healthz` ไม่ต้องใช้ token (ไม่มีข้อมูลภายใน)
 
 <a id="fail-closed-order-outcomes"></a>

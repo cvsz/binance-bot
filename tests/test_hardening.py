@@ -1,4 +1,5 @@
 """Regression tests for the audit fixes (order recovery, dust, kill switches, persistence...)."""
+
 import sqlite3
 import textwrap
 
@@ -30,11 +31,13 @@ class RecordingNotifier(NullNotifier):
 
 def live_engine(ex, **risk):
     risk.setdefault("cooldown_bars", 0)
-    return Engine("BTC/USDT", fast_broker(ex), RiskManager(RiskConfig(**risk)), Store(),
-                  RecordingNotifier(), mode="live-test")
+    return Engine(
+        "BTC/USDT", fast_broker(ex), RiskManager(RiskConfig(**risk)), Store(), RecordingNotifier(), mode="live-test"
+    )
 
 
 # ---- order recovery (P1) -----------------------------------------------------
+
 
 def test_buy_timeout_after_fill_is_recovered_by_client_id():
     ex = FakeExchange(synthetic(600))
@@ -79,6 +82,7 @@ def test_buy_fill_from_order_when_balances_unreadable():
 
 # ---- sells (P1) -----------------------------------------------------------------
 
+
 def test_dust_position_is_dropped_not_retried_forever():
     ex = FakeExchange(synthetic(600))
     b = fast_broker(ex)
@@ -86,8 +90,7 @@ def test_dust_position_is_dropped_not_retried_forever():
     with pytest.raises(DustError):
         b.sell_qty(0.00001, 100.0)  # 0.001 USDT < 5 USDT minimum
     e = live_engine(ex)
-    e.position = Position(qty=0.00001, entry_price=100, cost_quote=1, stop=98, take=None, peak=100,
-                          opened_at="x")
+    e.position = Position(qty=0.00001, entry_price=100, cost_quote=1, stop=98, take=None, peak=100, opened_at="x")
     e.on_price("t", low=50, high=50)
     assert e.position is None
     assert e.store.trades()[-1]["side"] == "abandon"
@@ -111,6 +114,7 @@ def test_order_not_found_after_timeout_is_broker_error():
 
 # ---- persistence (P1) -----------------------------------------------------------
 
+
 def test_position_and_paper_balances_saved_atomically(tmp_path):
     db = tmp_path / "s.db"
     e = Engine("BTC/USDT", PaperBroker(1000, 0, 0), RiskManager(RiskConfig()), Store(db), mode="t")
@@ -125,8 +129,13 @@ def test_position_and_paper_balances_saved_atomically(tmp_path):
 
 def test_trailing_stop_persisted(tmp_path):
     db = tmp_path / "s.db"
-    e = Engine("BTC/USDT", PaperBroker(1000, 0, 0),
-               RiskManager(RiskConfig(take_profit_pct=None, trailing_stop_pct=1)), Store(db), mode="t")
+    e = Engine(
+        "BTC/USDT",
+        PaperBroker(1000, 0, 0),
+        RiskManager(RiskConfig(take_profit_pct=None, trailing_stop_pct=1)),
+        Store(db),
+        mode="t",
+    )
     e.on_signal("2025-01-01 00:00", BUY, 100)
     e.on_price("t", low=119, high=120)  # low above the raised stop, so the position survives
     assert Store(db).get("position")["stop"] == pytest.approx(118.8)
@@ -138,6 +147,7 @@ def test_old_risk_state_loads():
 
 
 # ---- kill switch + resume (missing feature) ---------------------------------------
+
 
 def test_max_drawdown_halt_and_resume(tmp_path):
     db = tmp_path / "s.db"
@@ -168,6 +178,7 @@ def test_max_drawdown_halt_and_resume(tmp_path):
 
 # ---- runner resilience (P1) ------------------------------------------------------
 
+
 def test_runner_survives_unexpected_error_and_stops_on_auth_error():
     ex = FakeExchange(synthetic(600))
     note = RecordingNotifier()
@@ -175,12 +186,14 @@ def test_runner_survives_unexpected_error_and_stops_on_auth_error():
 
     def boom():
         raise KeyError("weird")
+
     r.step = boom
     assert r.tick(30) == 60 and not r._stop
     assert any("unexpected error" in m for m in note.msgs)
 
     def auth():
         raise ccxt.AuthenticationError("invalid api key")
+
     r.step = auth
     r.tick(30)
     assert r._stop and r.exit_code == 3
@@ -190,13 +203,15 @@ def test_runner_run_enforces_live_gates(monkeypatch):
     for k in ("BINANCE_API_KEY", "BINANCE_API_SECRET"):
         monkeypatch.delenv(k, raising=False)
     ex = FakeExchange(synthetic(600))
-    r = Runner(AppConfig(testnet=False), "live", exchange=ex, broker=fast_broker(ex), store=Store(),
-               notifier=NullNotifier())
+    r = Runner(
+        AppConfig(testnet=False), "live", exchange=ex, broker=fast_broker(ex), store=Store(), notifier=NullNotifier()
+    )
     with pytest.raises(PermissionError):
         r.run()
 
 
 # ---- notifier throttle (P2) ---------------------------------------------------------
+
 
 def test_notifier_dedupes_repeated_messages():
     n = Notifier(token="t", chat_id="c", dedupe_seconds=60)
@@ -206,6 +221,7 @@ def test_notifier_dedupes_repeated_messages():
 
 
 # ---- dashboard store is read-only (P2) ---------------------------------------------
+
 
 def test_read_only_store_cannot_write(tmp_path):
     db = tmp_path / "x.db"
@@ -225,6 +241,7 @@ def test_trade_columns_whitelisted():
 
 # ---- config / input validation (P3) -------------------------------------------------
 
+
 def write_cfg(tmp_path, cfg=None, body=None):
     p = tmp_path / "config.yaml"
     p.write_text(body if body is not None else f"db_path: {cfg.db_path}\n", encoding="utf-8")
@@ -237,13 +254,16 @@ def test_config_empty_sections_ok(tmp_path):
     assert cfg.testnet is True and cfg.risk.stop_loss_pct == 2.0
 
 
-@pytest.mark.parametrize("body,msg", [
-    ("timeframe: 15x\n", "timeframe"),
-    ("symbol: BTCUSDT\n", "symbol"),
-    ("risk:\n  stop_los_pct: 2\n", "unknown risk"),
-    ("risk:\n  max_trades_per_day: 0\n", "max_trades_per_day"),
-    ("paper:\n  fee_pct: -1\n", "fee_pct"),
-])
+@pytest.mark.parametrize(
+    "body,msg",
+    [
+        ("timeframe: 15x\n", "timeframe"),
+        ("symbol: BTCUSDT\n", "symbol"),
+        ("risk:\n  stop_los_pct: 2\n", "unknown risk"),
+        ("risk:\n  max_trades_per_day: 0\n", "max_trades_per_day"),
+        ("paper:\n  fee_pct: -1\n", "fee_pct"),
+    ],
+)
 def test_config_rejects_bad_values(tmp_path, body, msg):
     with pytest.raises(ValueError, match=msg):
         load_config(write_cfg(tmp_path, body=body))
@@ -261,18 +281,21 @@ def test_strategy_bad_params_are_value_errors():
 
 def test_load_csv_dedupes_and_drops_nan(tmp_path):
     p = tmp_path / "d.csv"
-    p.write_text(textwrap.dedent("""\
+    p.write_text(
+        textwrap.dedent("""\
         timestamp,open,high,low,close,volume
         1700000000000,1,2,0.5,1.5,10
         1700000000000,1,2,0.5,1.6,10
         1700000900000,1,2,0.5,,10
         1700001800000,1,2,0.5,1.7,10
-        """))
+        """)
+    )
     df = load_csv(str(p))
     assert len(df) == 2 and df["close"].iloc[0] == pytest.approx(1.6)
 
 
 # ---- health command (missing feature) -------------------------------------------------
+
 
 def test_health_command(tmp_path):
     cfg = AppConfig(db_path=str(tmp_path / "bot.db"))
@@ -290,6 +313,7 @@ def test_health_command(tmp_path):
 
 
 # ---- backup command ---------------------------------------------------------------------
+
 
 def test_backup_command(tmp_path):
     cfg = AppConfig(db_path=str(tmp_path / "data" / "bot.db"))

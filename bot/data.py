@@ -1,4 +1,5 @@
 """Market data: Binance OHLCV via ccxt (paginated) or a local CSV."""
+
 from __future__ import annotations
 
 import time
@@ -52,8 +53,9 @@ def load_csv(path: str) -> pd.DataFrame:
     if missing:
         raise ValueError(f"CSV missing columns: {sorted(missing)}")
     ts = df["timestamp"]
-    df["timestamp"] = pd.to_datetime(ts, unit="ms", utc=True) if pd.api.types.is_numeric_dtype(ts) \
-        else pd.to_datetime(ts, utc=True)
+    df["timestamp"] = (
+        pd.to_datetime(ts, unit="ms", utc=True) if pd.api.types.is_numeric_dtype(ts) else pd.to_datetime(ts, utc=True)
+    )
     df = df[COLS].dropna().drop_duplicates("timestamp", keep="last")
     df = df.set_index("timestamp").sort_index().astype(float)
     if df.empty:

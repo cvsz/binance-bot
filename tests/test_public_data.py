@@ -1,4 +1,5 @@
 """Offline tests for the Binance public-data downloader/converter."""
+
 import hashlib
 import io
 import zipfile
@@ -26,8 +27,8 @@ def make_zip(csv_text: str) -> bytes:
 
 
 def test_normalize_timestamp():
-    assert normalize_timestamp("1735689600000") == 1735689600000       # ms
-    assert normalize_timestamp("1735689600000866") == 1735689600000    # us (spot since 2025)
+    assert normalize_timestamp("1735689600000") == 1735689600000  # ms
+    assert normalize_timestamp("1735689600000866") == 1735689600000  # us (spot since 2025)
 
 
 def test_parse_kline():
@@ -38,10 +39,7 @@ def test_parse_kline():
 
 
 def test_rows_from_zip_write_csv_and_load(tmp_path):
-    data = make_zip(
-        "1735689600000,1,2,0.5,1.5,10,0,0,0,0,0,0\n"
-        "1735689600000,1,2,0.5,1.6,10,0,0,0,0,0,0\n"
-    )
+    data = make_zip("1735689600000,1,2,0.5,1.5,10,0,0,0,0,0,0\n1735689600000,1,2,0.5,1.6,10,0,0,0,0,0,0\n")
     rows = rows_from_zip(data)
     assert len(rows) == 2
     out = tmp_path / "k.csv"
@@ -73,4 +71,5 @@ def test_month_plan_uses_monthly_only_for_complete_months():
 
 def test_build_url():
     assert build_url("monthly", "2025-01", "BTCUSDT", "15m").endswith(
-        "/spot/monthly/klines/BTCUSDT/15m/BTCUSDT-15m-2025-01.zip")
+        "/spot/monthly/klines/BTCUSDT/15m/BTCUSDT-15m-2025-01.zip"
+    )

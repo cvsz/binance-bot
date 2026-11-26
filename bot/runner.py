@@ -1,4 +1,5 @@
 """Long-running loop for paper and live trading."""
+
 from __future__ import annotations
 
 import logging
@@ -48,8 +49,16 @@ def make_exchange(cfg: AppConfig, authenticated: bool):
 
 
 class Runner:
-    def __init__(self, cfg: AppConfig, mode: str, exchange=None, broker=None, store: Store | None = None,
-                 notifier=None, real_money: bool = False):
+    def __init__(
+        self,
+        cfg: AppConfig,
+        mode: str,
+        exchange=None,
+        broker=None,
+        store: Store | None = None,
+        notifier=None,
+        real_money: bool = False,
+    ):
         if mode not in ("paper", "live"):
             raise ValueError(f"mode must be 'paper' or 'live', got {mode!r}")
         self.cfg, self.mode, self.real_money = cfg, mode, real_money
@@ -57,11 +66,20 @@ class Runner:
         self.strategy = build_strategy(cfg.strategy, cfg.strategy_params)
         self.store = store or Store(db_path_for(cfg, mode))
         if broker is None:
-            broker = LiveBroker(self.ex, cfg.symbol) if mode == "live" else PaperBroker(
-                cfg.paper_starting_quote, cfg.fee_pct, cfg.slippage_pct)
+            broker = (
+                LiveBroker(self.ex, cfg.symbol)
+                if mode == "live"
+                else PaperBroker(cfg.paper_starting_quote, cfg.fee_pct, cfg.slippage_pct)
+            )
         self.broker = broker
-        self.engine = Engine(cfg.symbol, broker, RiskManager(cfg.risk), self.store,
-                             notifier or Notifier(), mode=mode + ("-testnet" if mode == "live" and cfg.testnet else ""))
+        self.engine = Engine(
+            cfg.symbol,
+            broker,
+            RiskManager(cfg.risk),
+            self.store,
+            notifier or Notifier(),
+            mode=mode + ("-testnet" if mode == "live" and cfg.testnet else ""),
+        )
         self._stop = False
         self.exit_code = 0
         # Rolling window of closed candles for signal computation. Avoids re-fetching
@@ -86,7 +104,8 @@ class Runner:
                 # size: fail closed rather than trading on a wrong assumption.
                 self.engine._halt(
                     f"position quantity mismatch {self.cfg.symbol}: wallet {base:.8f} vs tracked "
-                    f"{self.engine.position.qty:.8f} - check Binance, then resume")
+                    f"{self.engine.position.qty:.8f} - check Binance, then resume"
+                )
         elif base > 0:
             # A buy may have filled without being persisted (crash or unconfirmed
             # order). Coins with no tracked stop are unacceptable: block new
@@ -100,7 +119,8 @@ class Runner:
                 log.error("untracked %s in wallet with no position - halting entries", self.cfg.symbol)
                 self.engine._halt(
                     f"untracked {base:.8f} {self.cfg.symbol} in wallet (no position/stop); "
-                    f"check Binance, fix, then resume")
+                    f"check Binance, fix, then resume"
+                )
 
     @staticmethod
     def _price_age(ticker: dict) -> float | None:
@@ -138,8 +158,7 @@ class Runner:
 
         if self._candle_df is None or last_bar is None:
             # First run: full fetch of warmup + buffer candles.
-            df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe,
-                              limit=warmup + self._candle_buffer + 10)
+            df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe, limit=warmup + self._candle_buffer + 10)
             if len(df) <= warmup:
                 log.warning("not enough candles yet (%d)", len(df))
                 return df
@@ -150,8 +169,7 @@ class Runner:
         last_bar_ms = pd.Timestamp(last_bar).value // 1_000_000
         since_ms = last_bar_ms + tf_ms
         try:
-            new_rows = self.ex.fetch_ohlcv(self.cfg.symbol, self.cfg.timeframe,
-                                           since=since_ms, limit=50)
+            new_rows = self.ex.fetch_ohlcv(self.cfg.symbol, self.cfg.timeframe, since=since_ms, limit=50)
         except ccxt.NetworkError:
             log.warning("network error fetching incremental candles; using cached df")
             return self._candle_df
@@ -165,8 +183,7 @@ class Runner:
         # If we hit the fetch limit, we may have missed candles; fall back to full fetch.
         if len(new_rows) >= 50:
             log.warning("incremental fetch hit limit; falling back to full fetch")
-            df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe,
-                              limit=warmup + self._candle_buffer + 10)
+            df = fetch_recent(self.ex, self.cfg.symbol, self.cfg.timeframe, limit=warmup + self._candle_buffer + 10)
             self._candle_df = df
             return df
 
@@ -228,13 +245,25 @@ class Runner:
         if start_equity is None:
             start_equity = equity
             self.store.put("start_equity", equity)
-        self.store.put("heartbeat", {
-            "ts": pd.Timestamp.now(tz="UTC").isoformat(), "price": price, "equity": equity,
-            "base": base, "quote": quote, "symbol": self.cfg.symbol, "timeframe": self.cfg.timeframe,
-            "strategy": self.cfg.strategy, "mode": self.engine.mode, "poll_seconds": self.cfg.poll_seconds,
-            "start_equity": start_equity, "halted": self.engine.risk.state.halted_reason,
-            "price_age_s": round(price_age, 1) if price_age is not None else None, "price_stale": stale,
-        })
+        self.store.put(
+            "heartbeat",
+            {
+                "ts": pd.Timestamp.now(tz="UTC").isoformat(),
+                "price": price,
+                "equity": equity,
+                "base": base,
+                "quote": quote,
+                "symbol": self.cfg.symbol,
+                "timeframe": self.cfg.timeframe,
+                "strategy": self.cfg.strategy,
+                "mode": self.engine.mode,
+                "poll_seconds": self.cfg.poll_seconds,
+                "start_equity": start_equity,
+                "halted": self.engine.risk.state.halted_reason,
+                "price_age_s": round(price_age, 1) if price_age is not None else None,
+                "price_stale": stale,
+            },
+        )
 
     def run(self) -> int:
         if self.mode == "live":
@@ -242,17 +271,19 @@ class Runner:
         signal.signal(signal.SIGINT, self._handle_stop)
         signal.signal(signal.SIGTERM, self._handle_stop)
         self.restore()
-        self.engine.notifier.send(f"[{self.engine.mode}] bot started {self.cfg.symbol} {self.cfg.timeframe} "
-                                  f"strategy={self.cfg.strategy}")
-        backoff = self.cfg.poll_seconds
+        self.engine.notifier.send(
+            f"[{self.engine.mode}] bot started {self.cfg.symbol} {self.cfg.timeframe} strategy={self.cfg.strategy}"
+        )
+        backoff: float = float(self.cfg.poll_seconds)
         while not self._stop:
             backoff = self.tick(backoff)
             if self._stop:
                 break
             self._sleep(backoff)
         self.engine.save()
-        self.engine.notifier.send(f"[{self.engine.mode}] bot stopped" +
-                                  (f" (exit code {self.exit_code})" if self.exit_code else ""))
+        self.engine.notifier.send(
+            f"[{self.engine.mode}] bot stopped" + (f" (exit code {self.exit_code})" if self.exit_code else "")
+        )
         return self.exit_code
 
     def tick(self, backoff: float) -> float:
@@ -262,8 +293,10 @@ class Runner:
             return self.cfg.poll_seconds
         except FATAL_ERRORS as exc:
             log.critical("fatal exchange error, stopping: %s", exc)
-            self.engine.notifier.send(f"[{self.engine.mode}] ⛔ STOPPED - fatal error: {exc}"
-                                      + (" (open position is NOT protected!)" if self.engine.position else ""))
+            self.engine.notifier.send(
+                f"[{self.engine.mode}] ⛔ STOPPED - fatal error: {exc}"
+                + (" (open position is NOT protected!)" if self.engine.position else "")
+            )
             self.exit_code = 3
             self._stop = True
         except ccxt.NetworkError as exc:

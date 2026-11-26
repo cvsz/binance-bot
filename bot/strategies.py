@@ -3,6 +3,7 @@
 Signals at bar i are computed from bars <= i only, so the same code is used for
 backtests and live trading without lookahead bias.
 """
+
 from __future__ import annotations
 
 import pandas as pd
