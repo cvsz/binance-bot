@@ -7,10 +7,22 @@ from bot.broker import PaperBroker
 from bot.config import AppConfig, REAL_MONEY_ENV, REAL_MONEY_VALUE, check_live_allowed
 from bot.data import drop_open_candle
 from bot.engine import Engine
-from bot.indicators import rsi
+from bot.indicators import (
+    atr,
+    bollinger_bands,
+    macd,
+    rate_of_change,
+    rsi,
+    sma,
+    stochastic,
+    vwap,
+    williams_r,
+)
+from bot.money import Money, thb, usdt
 from bot.risk import RiskConfig, RiskManager
 from bot.store import Store
 from bot.strategies import BUY, HOLD, SELL, EmaCross, RsiReversion, build_strategy
+from bot.types import SignalAction, Side, TradingMode
 
 
 def synthetic(n=3000, seed=7, start=30000.0):
@@ -196,3 +208,187 @@ def test_live_gates(monkeypatch):
         check_live_allowed(real, True)  # missing env confirmation
     monkeypatch.setenv(REAL_MONEY_ENV, REAL_MONEY_VALUE)
     check_live_allowed(real, True)
+
+
+# ---- money ----------------------------------------------------------------
+
+
+def test_money_add_subtract_same_currency():
+    a = usdt(100.50)
+    b = usdt(25.25)
+    assert (a + b).to_float() == pytest.approx(125.75)
+    assert (a - b).to_float() == pytest.approx(75.25)
+
+
+def test_money_currency_mismatch_raises():
+    with pytest.raises(ValueError, match="currency mismatch"):
+        usdt(100) + thb(100)
+
+
+def test_money_multiply_divide():
+    assert usdt(100) * 2 == usdt(200)
+    assert 2 * usdt(100) == usdt(200)
+    assert usdt(100) / 4 == usdt(25)
+
+
+def test_money_zero_and_from_float():
+    assert usdt(0).to_float() == 0.0
+    assert Money.from_float(0.1 + 0.2).to_float() == pytest.approx(0.3)
+
+
+def test_money_comparison():
+    assert usdt(10) < usdt(20)
+    assert usdt(20) > usdt(10)
+    assert usdt(10) <= usdt(10)
+    assert usdt(10) >= usdt(10)
+    assert usdt(10) == usdt(10)
+
+
+# ---- types ----------------------------------------------------------------
+
+
+def test_side_enum():
+    assert Side.BUY == "buy"
+    assert Side.SELL == "sell"
+    assert {Side.BUY, Side.SELL} == {Side.BUY, Side.SELL}
+
+
+def test_trading_mode_enum():
+    assert TradingMode.PAPER == "paper"
+    assert TradingMode.SANDBOX == "sandbox"
+    assert TradingMode.LIVE == "live"
+
+
+def test_signal_action_enum():
+    assert SignalAction.BUY == "buy"
+    assert SignalAction.SELL == "sell"
+    assert SignalAction.HOLD == "hold"
+
+
+# ---- new indicators -------------------------------------------------------
+
+
+def test_sma_indicator():
+    s = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+    result = sma(s, 3)
+    assert result.iloc[2] == pytest.approx(2.0)
+    assert result.iloc[4] == pytest.approx(4.0)
+    assert result.iloc[0] is pd.NA or pd.isna(result.iloc[0])
+
+
+def test_macd_indicator():
+    s = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
+    macd_line, signal_line, hist = macd(s, fast=3, slow=5, signal=2)
+    assert len(macd_line) == len(s)
+    assert len(signal_line) == len(s)
+    assert len(hist) == len(s)
+
+
+def test_bollinger_bands_indicator():
+    s = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
+    upper, middle, lower = bollinger_bands(s, period=3)
+    assert len(upper) == len(s)
+    assert len(middle) == len(s)
+    assert len(lower) == len(s)
+    assert (upper.dropna() >= middle.dropna()).all()
+    assert (lower.dropna() <= middle.dropna()).all()
+
+
+def test_atr_indicator():
+    high = pd.Series([10.0, 11.0, 12.0, 13.0, 14.0])
+    low = pd.Series([9.0, 10.0, 11.0, 12.0, 13.0])
+    close = pd.Series([9.5, 10.5, 11.5, 12.5, 13.5])
+    result = atr(high, low, close, period=2)
+    assert len(result) == len(high)
+    assert (result.dropna() >= 0).all()
+
+
+def test_stochastic_indicator():
+    high = pd.Series([10.0, 11.0, 12.0, 13.0, 14.0])
+    low = pd.Series([9.0, 10.0, 11.0, 12.0, 13.0])
+    close = pd.Series([9.5, 10.5, 11.5, 12.5, 13.5])
+    k, d = stochastic(high, low, close, k_period=3, d_period=2)
+    assert len(k) == len(high)
+    assert len(d) == len(high)
+
+
+def test_williams_r_indicator():
+    high = pd.Series([10.0, 11.0, 12.0, 13.0, 14.0])
+    low = pd.Series([9.0, 10.0, 11.0, 12.0, 13.0])
+    close = pd.Series([9.5, 10.5, 11.5, 12.5, 13.5])
+    result = williams_r(high, low, close, period=3)
+    assert len(result) == len(high)
+    assert (result.dropna() <= 0).all()
+    assert (result.dropna() >= -100).all()
+
+
+def test_vwap_indicator():
+    high = pd.Series([10.0, 11.0, 12.0])
+    low = pd.Series([9.0, 10.0, 11.0])
+    close = pd.Series([9.5, 10.5, 11.5])
+    volume = pd.Series([100.0, 200.0, 300.0])
+    result = vwap(high, low, close, volume)
+    assert len(result) == len(high)
+    assert (result > 0).all()
+
+
+def test_rate_of_change_indicator():
+    s = pd.Series([100.0, 110.0, 121.0, 133.1])
+    result = rate_of_change(s, period=1)
+    assert len(result) == len(s)
+    assert result.iloc[1] == pytest.approx(0.10)  # 10% change
+
+
+# ---- new indicators are causal (no lookahead) ------------------------------
+
+
+def test_single_series_indicators_no_lookahead():
+    df = synthetic(300)
+    single_series = [
+        (sma, (3,)),
+        (rsi, (14,)),
+        (rate_of_change, (2,)),
+    ]
+    for fn, args in single_series:
+        full = fn(df["close"], *args)
+        for i in range(50, len(df), 37):
+            partial = fn(df["close"].iloc[: i + 1], *args)
+            assert partial.iloc[-1] == full.iloc[i], f"{fn.__name__} has lookahead at {i}"
+
+
+def test_multi_series_indicators_no_lookahead():
+    df = synthetic(300)
+    # stochastic returns (k, d) tuple
+    full_k, _ = stochastic(df["high"], df["low"], df["close"], 3, 2)
+    for i in range(50, len(df), 37):
+        partial_k, _ = stochastic(
+            df["high"].iloc[: i + 1],
+            df["low"].iloc[: i + 1],
+            df["close"].iloc[: i + 1],
+            3,
+            2,
+        )
+        assert partial_k.iloc[-1] == full_k.iloc[i], "stochastic has lookahead at {i}"
+    # williams_r returns a single Series
+    full_wr = williams_r(df["high"], df["low"], df["close"], 3)
+    for i in range(50, len(df), 37):
+        partial_wr = williams_r(
+            df["high"].iloc[: i + 1],
+            df["low"].iloc[: i + 1],
+            df["close"].iloc[: i + 1],
+            3,
+        )
+        assert partial_wr.iloc[-1] == full_wr.iloc[i], "williams_r has lookahead at {i}"
+
+
+def test_atr_indicator_no_lookahead():
+    df = synthetic(300)
+    full = atr(df["high"], df["low"], df["close"], 14)
+    for i in range(50, len(df), 37):
+        partial = atr(
+            df["high"].iloc[: i + 1],
+            df["low"].iloc[: i + 1],
+            df["close"].iloc[: i + 1],
+            14,
+        )
+        assert partial.iloc[-1] == full.iloc[i], "atr has lookahead at {i}"

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt -c constraints.txt
+
+      - name: Run ruff lint
+        run: python -m ruff check .
+
+      - name: Run ruff format check
+        run: python -m ruff format --check .
+
+      - name: Run mypy type check
+        run: python -m mypy bot/ run.py scripts/ tests/
+
+      - name: Run docs check
+        run: python scripts/check_docs.py .
+
+      - name: Run secrets check
+        run: python scripts/check_secrets.py .
+
+      - name: Run pytest
+        run: python -m pytest

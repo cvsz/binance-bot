@@ -1,10 +1,47 @@
-"""Position sizing, stop/take-profit levels and account-level kill switches."""
+"""Position sizing, stop/take-profit levels and account-level kill switches.
+
+Enhanced with zksato-inspired trailing stop types (percentage / ATR / fixed)
+and activation price, plus a TrailingStopConfig/TrailingStopState model.
+"""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
+from enum import StrEnum
 
 DAILY_PREFIX = "daily"
+
+
+class TrailingStopType(StrEnum):
+    """Trailing stop calculation methods."""
+
+    PERCENTAGE = "percentage"
+    ATR = "atr"
+    FIXED = "fixed"
+
+
+@dataclass(frozen=True, slots=True)
+class TrailingStopConfig:
+    """Configuration for a trailing stop."""
+
+    stop_type: TrailingStopType = TrailingStopType.PERCENTAGE
+    percentage: float = 2.0  # % below peak for long positions
+    atr_multiplier: float = 2.0  # multiplier applied to ATR value
+    atr_period: int = 14  # ATR lookback period
+    fixed_amount: float | None = None  # fixed quote amount below peak
+    activation_price: float | None = None  # price at which trailing activates
+
+
+@dataclass(frozen=True, slots=True)
+class TrailingStopState:
+    """Current state of a trailing stop for a position."""
+
+    symbol: str
+    config: TrailingStopConfig
+    highest_price: float = 0.0  # highest price seen since entry (long)
+    lowest_price: float = 0.0  # lowest price seen since entry (short)
+    stop_price: float = 0.0  # current stop price
+    activated: bool = False  # whether trailing is active
 
 
 @dataclass
@@ -13,6 +50,11 @@ class RiskConfig:
     stop_loss_pct: float = 2.0  # stop distance from entry
     take_profit_pct: float | None = 4.0
     trailing_stop_pct: float | None = None
+    trailing_stop_type: str = "percentage"  # percentage | atr | fixed
+    trailing_stop_atr_multiplier: float = 2.0
+    trailing_stop_atr_period: int = 14
+    trailing_stop_fixed_amount: float | None = None
+    trailing_stop_activation_price: float | None = None
     max_position_pct: float = 25.0  # cap on % of equity in one position
     max_daily_loss_pct: float = 3.0  # stop opening trades after this daily drawdown
     max_trades_per_day: int = 10
@@ -31,6 +73,16 @@ class RiskConfig:
             raise ValueError("take_profit_pct must be > 0 or null")
         if self.trailing_stop_pct is not None and not 0 < self.trailing_stop_pct < 100:
             raise ValueError("trailing_stop_pct must be in (0, 100) or null")
+        if self.trailing_stop_type not in ("percentage", "atr", "fixed"):
+            raise ValueError("trailing_stop_type must be 'percentage', 'atr', or 'fixed'")
+        if not 0 < self.trailing_stop_atr_multiplier <= 10:
+            raise ValueError("trailing_stop_atr_multiplier must be in (0, 10]")
+        if int(self.trailing_stop_atr_period) < 1:
+            raise ValueError("trailing_stop_atr_period must be >= 1")
+        if self.trailing_stop_fixed_amount is not None and self.trailing_stop_fixed_amount <= 0:
+            raise ValueError("trailing_stop_fixed_amount must be > 0 or null")
+        if self.trailing_stop_activation_price is not None and self.trailing_stop_activation_price <= 0:
+            raise ValueError("trailing_stop_activation_price must be > 0 or null")
         if not 0 < self.max_daily_loss_pct <= 100:
             raise ValueError("max_daily_loss_pct must be in (0, 100]")
         if self.max_drawdown_halt_pct is not None and not 0 < self.max_drawdown_halt_pct <= 100:
@@ -93,10 +145,33 @@ class RiskManager:
         take = entry * (1 + self.cfg.take_profit_pct / 100) if self.cfg.take_profit_pct else None
         return stop, take
 
-    def update_trailing(self, pos: Position, high: float) -> None:
+    def update_trailing(self, pos: Position, high: float, atr_value: float | None = None) -> None:
+        """Update trailing stop for ``pos`` using the configured stop type.
+
+        ``atr_value`` is required when ``trailing_stop_type == "atr"``.
+        Activation price (if set) gates when trailing begins.
+        """
+        cfg = self.cfg
         pos.peak = max(pos.peak, high)
-        if self.cfg.trailing_stop_pct:
-            pos.stop = max(pos.stop, pos.peak * (1 - self.cfg.trailing_stop_pct / 100))
+
+        # Determine if trailing is activated
+        activated = True
+        if cfg.trailing_stop_activation_price is not None and high < cfg.trailing_stop_activation_price:
+            activated = False
+
+        if not activated:
+            return
+
+        stop_type = cfg.trailing_stop_type
+        if stop_type == "percentage" and cfg.trailing_stop_pct:
+            new_stop = pos.peak * (1 - cfg.trailing_stop_pct / 100)
+            pos.stop = max(pos.stop, new_stop)
+        elif stop_type == "atr" and atr_value is not None:
+            new_stop = pos.peak - (cfg.trailing_stop_atr_multiplier * atr_value)
+            pos.stop = max(pos.stop, new_stop)
+        elif stop_type == "fixed" and cfg.trailing_stop_fixed_amount is not None:
+            new_stop = pos.peak - cfg.trailing_stop_fixed_amount
+            pos.stop = max(pos.stop, new_stop)
 
     # ---- account guards --------------------------------------------------
     def roll_day(self, day: str, equity: float) -> None:
@@ -152,3 +227,15 @@ class RiskManager:
 
     def state_dict(self) -> dict:
         return asdict(self.state)
+
+
+__all__ = [
+    "TrailingStopType",
+    "TrailingStopConfig",
+    "TrailingStopState",
+    "RiskConfig",
+    "Position",
+    "RiskState",
+    "RiskManager",
+    "DAILY_PREFIX",
+]

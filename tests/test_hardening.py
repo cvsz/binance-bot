@@ -11,8 +11,14 @@ from bot.broker import BrokerError, DustError, OrderStateUnknown, PaperBroker, P
 from bot.config import AppConfig, db_path_for, load_config
 from bot.data import load_csv
 from bot.engine import RESUME_KEY, Engine
+from bot.errors import RetryPolicy, is_fatal_error, is_retryable_error, should_retry
 from bot.notify import Notifier, NullNotifier
-from bot.risk import Position, RiskConfig, RiskManager, RiskState
+from bot.risk import (
+    Position,
+    RiskConfig,
+    RiskManager,
+    RiskState,
+)
 from bot.runner import Runner
 from bot.store import Store
 from bot.strategies import BUY, build_strategy
@@ -328,3 +334,151 @@ def test_backup_command(tmp_path):
     assert len(files) == 1
     copy = Store(files[0], read_only=True)
     assert copy.get("position") == {"qty": 1} and len(copy.trades()) == 1
+
+
+# ---- trailing stop types (percentage / atr / fixed + activation price) ----
+
+
+def test_trailing_stop_percentage_type():
+    rm = RiskManager(
+        RiskConfig(
+            trailing_stop_pct=1.0,
+            trailing_stop_type="percentage",
+            cooldown_bars=0,
+        )
+    )
+    pos = Position(
+        qty=1.0,
+        entry_price=100.0,
+        cost_quote=100.0,
+        stop=98.0,
+        take=None,
+        peak=100.0,
+        opened_at="2025-01-01",
+    )
+    # price goes up to 110 -> stop should trail to 110 * 0.99 = 108.9
+    rm.update_trailing(pos, 110.0)
+    assert pos.stop == pytest.approx(108.9)
+    # price dips to 105 -> stop stays at 108.9 (only moves up)
+    rm.update_trailing(pos, 105.0)
+    assert pos.stop == pytest.approx(108.9)
+
+
+def test_trailing_stop_atr_type():
+    rm = RiskManager(
+        RiskConfig(
+            trailing_stop_pct=None,
+            trailing_stop_type="atr",
+            trailing_stop_atr_multiplier=2.0,
+            cooldown_bars=0,
+        )
+    )
+    pos = Position(
+        qty=1.0,
+        entry_price=100.0,
+        cost_quote=100.0,
+        stop=98.0,
+        take=None,
+        peak=100.0,
+        opened_at="2025-01-01",
+    )
+    # peak 110, ATR 2.0 -> stop = 110 - 2*2.0 = 106.0
+    rm.update_trailing(pos, 110.0, atr_value=2.0)
+    assert pos.stop == pytest.approx(106.0)
+
+
+def test_trailing_stop_fixed_type():
+    rm = RiskManager(
+        RiskConfig(
+            trailing_stop_pct=None,
+            trailing_stop_type="fixed",
+            trailing_stop_fixed_amount=5.0,
+            cooldown_bars=0,
+        )
+    )
+    pos = Position(
+        qty=1.0,
+        entry_price=100.0,
+        cost_quote=100.0,
+        stop=98.0,
+        take=None,
+        peak=100.0,
+        opened_at="2025-01-01",
+    )
+    # peak 110, fixed 5.0 -> stop = 110 - 5 = 105.0
+    rm.update_trailing(pos, 110.0)
+    assert pos.stop == pytest.approx(105.0)
+
+
+def test_trailing_stop_activation_price_gates():
+    rm = RiskManager(
+        RiskConfig(
+            trailing_stop_pct=1.0,
+            trailing_stop_type="percentage",
+            trailing_stop_activation_price=105.0,
+            cooldown_bars=0,
+        )
+    )
+    pos = Position(
+        qty=1.0,
+        entry_price=100.0,
+        cost_quote=100.0,
+        stop=98.0,
+        take=None,
+        peak=100.0,
+        opened_at="2025-01-01",
+    )
+    # price 104 < activation 105 -> trailing not activated, stop stays
+    rm.update_trailing(pos, 104.0)
+    assert pos.stop == pytest.approx(98.0)
+    # price 106 >= activation -> trailing activates
+    rm.update_trailing(pos, 106.0)
+    assert pos.stop == pytest.approx(106.0 * 0.99)
+
+
+def test_trailing_stop_type_validation():
+    with pytest.raises(ValueError, match="trailing_stop_type"):
+        RiskConfig(trailing_stop_type="invalid")
+
+
+# ---- RetryPolicy / error classification helpers ---------------------------
+
+
+def test_retry_policy_get_delay():
+    p = RetryPolicy(max_attempts=3, base_delay=1.0, max_delay=30.0, exponential_base=2.0, jitter=False)
+    assert p.get_delay(0) == pytest.approx(1.0)
+    assert p.get_delay(1) == pytest.approx(2.0)
+    assert p.get_delay(2) == pytest.approx(4.0)
+    assert p.get_delay(3) == 0.0  # beyond max_attempts
+
+
+def test_retry_policy_max_attempts_zero():
+    p = RetryPolicy(max_attempts=0)
+    assert p.get_delay(0) == 0.0
+
+
+def test_is_retryable_error_true():
+    assert is_retryable_error(ccxt.NetworkError("timeout"))
+    assert is_retryable_error(ccxt.RateLimitExceeded("rate limit"))
+
+
+def test_is_retryable_error_false():
+    assert not is_retryable_error(ccxt.AuthenticationError("bad key"))
+    assert not is_retryable_error(ccxt.InsufficientFunds("no balance"))
+
+
+def test_is_fatal_error_true():
+    assert is_fatal_error(ccxt.AuthenticationError("bad key"))
+    assert is_fatal_error(ccxt.InsufficientFunds("no balance"))
+
+
+def test_is_fatal_error_false():
+    assert not is_fatal_error(ccxt.NetworkError("timeout"))
+
+
+def test_should_retry_transient_max_attempts():
+    # Transient errors: max_attempts=3, so attempts 0,1,2 retry; attempt 3 does not.
+    assert should_retry(ccxt.NetworkError("timeout"), 0)[0] is True
+    assert should_retry(ccxt.NetworkError("timeout"), 1)[0] is True
+    assert should_retry(ccxt.NetworkError("timeout"), 2)[0] is True
+    assert should_retry(ccxt.NetworkError("timeout"), 3)[0] is False
